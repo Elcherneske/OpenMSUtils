@@ -1,3 +1,4 @@
-from .MSFileObject import MSFileObject, MSSpectrum
 from .MSFileReader import MSFileReader
-from .MSFileWriter import MSFileWriter 
+from .MSFileWriter import MSFileWriter
+
+__all__ = ["MSFileReader", "MSFileWriter"]
