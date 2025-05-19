@@ -4,6 +4,7 @@ import multiprocessing as mp
 from tqdm import tqdm
 from .MZMLObject import MZMLObject, Spectrum
 import concurrent.futures
+from .MZMLConverter import MZMLConverter
 
 class MZMLReader(object):
     def __init__(self):
@@ -47,6 +48,30 @@ class MZMLReader(object):
         else:
             # 直接创建MZMLObject并解析
             return MZMLObject(root, parse_spectra=parse_spectra)
+    
+    def read_to_msobjects(self, filename, parallel=False, num_processes=None):
+        """
+        读取MZML文件并解析为MSObject对象列表
+        
+        Args:
+            filename: mzML文件路径
+            parallel: 是否使用并行处理解析spectra，默认为False
+            num_processes: 并行处理的进程数，默认为None（使用CPU核心数）
+            
+        Returns:
+            list: MSObject对象列表
+        """
+        # 先读取为MZMLObject
+        mzml_obj = self.read(filename, parse_spectra=True, parallel=parallel, num_processes=num_processes)
+        
+        # 将Spectrum对象转换为MSObject
+        ms_objects = []
+        if mzml_obj.run and mzml_obj.run.spectra_list:
+            for spectrum in tqdm(mzml_obj.run.spectra_list, desc="Converting to MSObjects"):
+                ms_obj = MZMLConverter.to_msobject(spectrum)
+                ms_objects.append(ms_obj)
+        
+        return ms_objects
 
     def _parse_spectra_parallel(self, filename, mzml_obj, root, num_processes=None):
         """
@@ -153,31 +178,6 @@ class MZMLReader(object):
                 print(f"Error parsing spectrum element: {e}")
         
         return spectra
-
-    def read_to_msobjects(self, filename, parallel=False, num_processes=None):
-        """
-        读取MZML文件并解析为MSObject对象列表
-        
-        Args:
-            filename: mzML文件路径
-            parallel: 是否使用并行处理解析spectra，默认为False
-            num_processes: 并行处理的进程数，默认为None（使用CPU核心数）
-            
-        Returns:
-            list: MSObject对象列表
-        """
-        from ..SpectraConverter import SpectraConverter
-        # 先读取为MZMLObject
-        mzml_obj = self.read(filename, parse_spectra=True, parallel=parallel, num_processes=num_processes)
-        
-        # 将Spectrum对象转换为MSObject
-        ms_objects = []
-        if mzml_obj.run and mzml_obj.run.spectra_list:
-            for spectrum in tqdm(mzml_obj.run.spectra_list, desc="Converting to MSObjects"):
-                ms_obj = SpectraConverter.to_msobject(spectrum)
-                ms_objects.append(ms_obj)
-        
-        return ms_objects
 
     def _get_offset_list(self, root):
         """

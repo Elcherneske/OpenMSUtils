@@ -2,6 +2,7 @@ import os
 import re
 from tqdm import tqdm
 from .MSFileObject import MSFileObject, MSSpectrum
+from .MSFileConverter import MSFileConverter
 
 class MSFileReader(object):
     def __init__(self):
@@ -111,14 +112,13 @@ class MSFileReader(object):
         Returns:
             list: MSObject对象列表
         """
-        from ..SpectraConverter import SpectraConverter
         # 读取MS文件
         ms_file_obj = self.read(filename)
         
         # 转换为MSObject列表
         ms_objects = []
         for spectrum in tqdm(ms_file_obj.spectra, desc="Converting to MSObjects"):
-            ms_obj = SpectraConverter.to_msobject(spectrum)
+            ms_obj = MSFileConverter.to_msobject(spectrum)
             ms_objects.append(ms_obj)
         
         return ms_objects 

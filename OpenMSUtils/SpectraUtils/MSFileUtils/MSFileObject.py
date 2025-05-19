@@ -181,3 +181,4 @@ class MSFileObject(object):
             lines.append("")  # 添加空行分隔谱图
         
         return "\n".join(lines) 
+

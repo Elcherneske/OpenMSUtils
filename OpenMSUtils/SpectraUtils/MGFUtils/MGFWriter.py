@@ -1,5 +1,6 @@
 from tqdm import tqdm
 from .MGFObject import MGFObject, MGFSpectrum
+from .MGFConverter import MGFConverter
 
 class MGFWriter(object):
     def __init__(self):
@@ -41,7 +42,6 @@ class MGFWriter(object):
         Returns:
             bool: 写入是否成功
         """
-        from ..SpectraConverter import SpectraConverter
         # 创建MGFObject
         mgf_obj = MGFObject()
         
@@ -52,7 +52,7 @@ class MGFWriter(object):
         
         # 将MSObject转换为MGFSpectrum并添加到MGFObject
         for ms_obj in tqdm(ms_objects, desc="Converting MSObjects to MGF"):
-            mgf_spectrum = SpectraConverter.to_spectra(ms_obj, MGFSpectrum)
+            mgf_spectrum = MGFConverter.from_msobject(ms_obj)
             mgf_obj.add_spectrum(mgf_spectrum)
         
         # 写入文件

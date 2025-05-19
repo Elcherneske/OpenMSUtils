@@ -1,6 +1,7 @@
 import os
 from tqdm import tqdm
 from .MSFileObject import MSFileObject, MSSpectrum
+from .MSFileConverter import MSFileConverter
 
 class MSFileWriter(object):
     def __init__(self):
@@ -48,7 +49,6 @@ class MSFileWriter(object):
         Returns:
             bool: 写入是否成功
         """
-        from ..SpectraConverter import SpectraConverter
         if not ms_objects:
             raise ValueError("No MS objects provided")
         
@@ -76,7 +76,7 @@ class MSFileWriter(object):
         
         # 将MSObject转换为MSSpectrum并添加到MSFileObject
         for ms_obj in tqdm(ms_objects, desc=f"Converting MSObjects to MS{level}"):
-            ms_spectrum = SpectraConverter.to_spectra(ms_obj, MSSpectrum)
+            ms_spectrum = MSFileConverter.from_msobject(ms_obj)
             ms_file_obj.add_spectrum(ms_spectrum)
         
         # 写入文件

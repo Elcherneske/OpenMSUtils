@@ -2,6 +2,7 @@ from lxml import etree
 import os
 from tqdm import tqdm
 from .MZMLObject import MZMLObject, Spectrum, Run
+from .MZMLConverter import MZMLConverter
 
 class MZMLWriter(object):
     def __init__(self):
@@ -118,7 +119,6 @@ class MZMLWriter(object):
         Returns:
             bool: 写入是否成功
         """
-        from ..SpectraConverter import SpectraConverter
         # 创建基本的MZMLObject
         mzml_obj = MZMLObject()
         
@@ -155,7 +155,7 @@ class MZMLWriter(object):
         # 将MSObject转换为Spectrum并添加到Run
         spectra = []
         for ms_obj in tqdm(ms_objects, desc="Converting MSObjects to Spectra"):
-            spectrum = SpectraConverter.to_spectra(ms_obj, Spectrum)
+            spectrum = MZMLConverter.from_msobject(ms_obj)
             spectra.append(spectrum)
         
         run.spectra_list = spectra

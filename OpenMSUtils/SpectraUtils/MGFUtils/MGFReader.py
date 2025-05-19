@@ -1,6 +1,7 @@
 import os
 from tqdm import tqdm
 from .MGFObject import MGFObject, MGFSpectrum
+from .MGFConverter import MGFConverter
 
 class MGFReader(object):
     def __init__(self):
@@ -103,15 +104,13 @@ class MGFReader(object):
         Returns:
             list: MSObject对象列表
         """
-        from ..SpectraConverter import SpectraConverter
-        
         # 读取MGF文件
         mgf_obj = self.read(filename)
         
         # 转换为MSObject列表
         ms_objects = []
         for spectrum in tqdm(mgf_obj.spectra, desc="Converting to MSObjects"):
-            ms_obj = SpectraConverter.to_msobject(spectrum)
+            ms_obj = MGFConverter.to_msobject(spectrum)
             ms_objects.append(ms_obj)
         
         return ms_objects 
