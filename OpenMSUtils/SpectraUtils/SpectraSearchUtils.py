@@ -83,3 +83,5 @@ class BinnedSpectra:
                 mz_to_index[bin_index] = (mz_to_index[bin_index][0], index)
             
         return mz_to_index
+
+

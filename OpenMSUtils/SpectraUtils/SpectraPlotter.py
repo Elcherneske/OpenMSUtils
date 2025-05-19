@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from typing import List, Optional
 
 from .MSObject import MSObject
-from .XICSExtractor import XICResult, PolymerInfo
+from .XICSExtractor import XICResult
 
 class SpectraPlotter:
     def __init__(self):
@@ -60,7 +60,7 @@ class SpectraPlotter:
         plt.title("Ion Mobility Spectrum")
         plt.show()
     
-    def plot_xics(self, precursor_xics: List[XICResult], fragment_xics: List[XICResult], polymer_info: PolymerInfo, output_file: Optional[str] = None):
+    def plot_xics(self, precursor_xics: List[XICResult], fragment_xics: List[XICResult], output_file: Optional[str] = None):
         """绘制 XIC 图
         
         参数:
@@ -73,17 +73,17 @@ class SpectraPlotter:
         
         # 绘制前体离子 XIC
         for xic in precursor_xics:
-            label = f"{xic.ion_type} (m/z: {xic.mz:.4f}, ppm: {xic.ppm_error:.2f})"
+            label = f"(m/z: {xic.mz:.4f}, ppm: {xic.ppm_error:.2f})"
             ax1.plot(xic.rt_array, xic.intensity_array, label=label)
             
-        ax1.set_title(f"Precursor XIC: {polymer_info.modified_sequence} ({polymer_info.charge}+)")
+        ax1.set_title(f"Precursor XIC")
         ax1.set_ylabel("Intensity")
         ax1.legend()
         ax1.grid(True, linestyle='--', alpha=0.7)
         
         # 绘制碎片离子 XIC
         for xic in fragment_xics:
-            label = f"{xic.ion_type} (m/z: {xic.mz:.4f}, ppm: {xic.ppm_error:.2f})"
+            label = f"(m/z: {xic.mz:.4f}, ppm: {xic.ppm_error:.2f})"
             ax2.plot(xic.rt_array, xic.intensity_array, label=label)
             
         ax2.set_title("Fragment XIC")
@@ -94,9 +94,9 @@ class SpectraPlotter:
         
         # 添加 RT 范围标记
         for ax in [ax1, ax2]:
-            ax.axvline(x=polymer_info.rt_start, color='r', linestyle='--', alpha=0.5)
-            ax.axvline(x=polymer_info.rt_stop, color='r', linestyle='--', alpha=0.5)
-            ax.axvline(x=polymer_info.rt, color='g', linestyle='-', alpha=0.5)
+            ax.axvline(x=precursor_xics[0].rt_array[0], color='r', linestyle='--', alpha=0.5)
+            ax.axvline(x=precursor_xics[0].rt_array[-1], color='r', linestyle='--', alpha=0.5)
+            ax.axvline(x=precursor_xics[0].rt_array[len(precursor_xics[0].rt_array) // 2], color='g', linestyle='-', alpha=0.5)
         
         plt.tight_layout()
         

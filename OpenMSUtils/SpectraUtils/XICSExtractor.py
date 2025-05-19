@@ -3,10 +3,9 @@ from typing import List
 from dataclasses import dataclass
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor
-
+import pandas as pd
 from .MZMLUtils import MZMLReader
 from .MSObject import MSObject
-from .SpectraConverter import SpectraConverter
 
 @dataclass
 class XICResult:
@@ -15,32 +14,10 @@ class XICResult:
     intensity_array: np.ndarray  # 强度数组
     mz: float  # 目标质荷比
     ppm_error: float  # PPM 误差
-    ion_type: str = ""  # 离子类型 ([M+1], [M+2], [M+3], [M+4], b4, y7)
-    charge: int = 0  # 电荷状态
-
-@dataclass
-class FragmentIon:
-    """碎片离子信息类"""
-    ion_type: str  # 例如 y7, b10
-    charge: int  # 电荷状态
-    mz: float  # 质荷比
-    
-@dataclass
-class PolymerInfo:
-    """聚合物信息类"""
-    sequence: str  # 原始序列
-    modified_sequence: str  # 修饰后序列
-    charge: int  # 前体离子电荷
-    mz: float  # 前体离子质荷比
-    rt: float  # 保留时间
-    rt_start: float  # 保留时间起点
-    rt_stop: float  # 保留时间终点
-    fragment_ions: List[FragmentIon]  # 碎片离子列表
 
 class XICSExtractor:
     """XIC 提取器类"""
-    
-    def __init__(self, mzml_file: str, ppm_tolerance: float = 10.0):
+    def __init__(self, mzml_file: str, ppm_tolerance: float = 10.0, rt_bin_size: float = 1.0, num_threads: int = 1):
         """
         初始化 XIC 提取器
         
@@ -50,47 +27,255 @@ class XICSExtractor:
         """
         self.mzml_file = mzml_file
         self.ppm_tolerance = ppm_tolerance
-        self.reader = MZMLReader()
-        self.ms_objects = []
-        self.ms1_objects = []
-        self.ms2_objects = []
-        self.ms2_objects_indices = {}
+        self.rt_bin_size = rt_bin_size
+        self.ms_clusters = []
+        self.rt_indices = {}
+        self.num_threads = num_threads
         
     def load_mzml(self):
         """加载 mzML 文件并转换为 MSObject 列表"""
         print(f"正在读取 mzML 文件: {self.mzml_file}")
-        mzml_obj = self.reader.read(self.mzml_file, parse_spectra=True, parallel=True)
+        reader = MZMLReader()
+        ms_objects = reader.read_to_msobjects(self.mzml_file, parallel=True)
         
-        if not mzml_obj.run or not mzml_obj.run.spectra_list:
+        if not ms_objects:
             raise ValueError("未能从 mzML 文件中读取到谱图数据")
+        
+        print(f"共读取 {len(ms_objects)} 个谱图, 构建ms1,ms2谱图列表")  
+        self._format_ms_clusters(ms_objects)
+    
+    def extract_xics(self, df: pd.DataFrame) -> List[tuple[List[XICResult], List[XICResult]]]:
+        """提取XIC"""
+        xic_entries = []
+        for index, row in tqdm(df.iterrows(), total=len(df), desc="构建XIC Data"):
+            precursor_mzs = self._calculate_isotope_mzs(float(row["precursor_mz"]), int(row["charge"]))
+            rt_start = float(row["rt_start"]) * 60
+            rt_stop = float(row["rt_stop"]) * 60
+            rt = float(row["rt"]) * 60
+            fragment_mzs = [float(mz) for mz in row["fragment_mz"].split(",")]
+            ms_cluster = self._get_cluster_by_rt((rt_start, rt_stop)).copy()
+            xic_entries.append(
+                {
+                    "precursor_mzs": precursor_mzs,
+                    "fragment_mzs": fragment_mzs,
+                    "ms_cluster": ms_cluster
+                }
+            )
+
+        # 提取XIC
+        xics = []
+        if self.num_threads > 1:
+            import multiprocessing as mp
+            from functools import partial
             
-        print("正在将谱图转换为 MSObject...")
-        self.ms_objects = []
-        self.ms1_objects = []
-        self.ms2_objects = []
-        for spectrum in tqdm(mzml_obj.run.spectra_list, desc="转换谱图"):
-            ms_obj = SpectraConverter.to_msobject(spectrum)
-            # 分类 MS1 和 MS2 谱图
-            self.ms_objects.append(ms_obj)
-            if ms_obj.level == 1:
-                self.ms1_objects.append(ms_obj)
-            elif ms_obj.level == 2:
-                self.ms2_objects.append(ms_obj)
-        del mzml_obj
+            # 将数据划分为多个块
+            chunk_size = max(1, len(xic_entries) // self.num_threads)
+            chunks = [xic_entries[i:i + chunk_size] for i in range(0, len(xic_entries), chunk_size)]
+            
+            # 创建进程池并并行处理
+            with mp.Pool(processes=self.num_threads) as pool:
+                results = list(tqdm(
+                    pool.imap(self._extract_xic_from_mz_cluster, chunks),
+                    total=len(chunks),
+                    desc=f"提取XIC (使用{self.num_threads}个进程)"
+                ))
+                
+                # 合并结果
+                for result in results:
+                    xics.extend(result)
+        else:
+            # 单线程处理
+            for xic_entry in tqdm(xic_entries, total=len(xic_entries), desc="提取XIC"):
+                xics.append(self._extract_xic_from_mz_cluster([xic_entry])[0])
+        
+        return xics
 
-        self.ms1_objects.sort(key=lambda x: x.retention_time)
-        self.ms2_objects.sort(key=lambda x: x.retention_time)
+    def _extract_xic_from_mz_cluster(self, xic_entries: list[dict]) -> list[tuple[List[XICResult], List[XICResult]]]:
+        """从mz簇中提取XIC"""
 
-        self.ms2_objects_indices = {}
-        for index, ms2 in enumerate(self.ms2_objects):
-            second = int(ms2.retention_time)  # 获取当前 MS2 谱图的保留时间的秒数
-            if second not in self.ms2_objects_indices:
-                self.ms2_objects_indices[second] = index
+        xics = []
+        for xic_entry in xic_entries:
+            precursor_mzs = xic_entry["precursor_mzs"]
+            fragment_mzs = xic_entry["fragment_mzs"]
+            ms_cluster = xic_entry["ms_cluster"]
+            rt_list = [cluster['rt'] for cluster in ms_cluster]
+
+            #precursor_mz的XIC
+            precursor_xics = []
+            ms1_specs = [cluster['ms1'] for cluster in ms_cluster]
+            for precursor_mz in precursor_mzs:
+                precursor_intensity_list, precursor_ave_ppm = self._extract_xic_from_peaks(ms1_specs, precursor_mz, self.ppm_tolerance)
+                precursor_xics.append(XICResult(np.array(rt_list), np.array(precursor_intensity_list), precursor_mz, precursor_ave_ppm))
+
+            # 获取所有对应范围的ms2谱图
+            ms2_specs = []
+            for cluster in ms_cluster:
+                check = False
+                for ms2_spec in cluster['ms2']:
+                    if ms2_spec['mz_min'] <= precursor_mzs[0] <= ms2_spec['mz_max']:
+                        ms2_specs.append(ms2_spec['peaks'])
+                        check = True
+                        break
+                if not check:
+                    ms2_specs.append(None)
+
+            #fragment_mz的XIC
+            fragment_xics = []
+            for fragment_mz in fragment_mzs:
+                if all(ms2_spec is None for ms2_spec in ms2_specs):
+                    fragment_xics.append(XICResult(np.array(rt_list), np.array([0] * len(rt_list)), fragment_mz, 0))
+                else:
+                    fragment_intensity_list, fragment_ave_ppm = self._extract_xic_from_peaks(ms2_specs, fragment_mz, self.ppm_tolerance)
+                    fragment_xics.append(XICResult(np.array(rt_list), np.array(fragment_intensity_list), fragment_mz, fragment_ave_ppm))
+
+            xics.append((precursor_xics, fragment_xics))
+        return xics
+
+    
+    def _extract_xic_from_peaks(self, peaks: list[list[tuple]], mz: float, ppm_tolerance: float) -> tuple[List[float], float]:
+        """从峰列表中提取XIC"""
+        intensity_list = []
+        sum_ppm = 0
+        valid_ppm_count = 0
+        
+        for peak in peaks:
+            if not peak:
+                intensity_list.append(None)
             else:
-                if ms2.retention_time < self.ms2_objects[self.ms2_objects_indices[second]].retention_time:
-                    self.ms2_objects_indices[second] = index
+                intensity, ppm = self._binary_search(peak, mz, ppm_tolerance)
+                intensity_list.append(intensity)
+                if ppm > 0:  # 只有找到有效峰值时才累加ppm
+                    sum_ppm += ppm
+                    valid_ppm_count += 1
+        
+        # 计算平均ppm
+        if valid_ppm_count > 0:
+            ave_ppm = sum_ppm / valid_ppm_count
+        else:
+            ave_ppm = 0
+        
+        # 线性插值处理缺失值（intensity为None的点）
+        if None in intensity_list:
+            for i in range(len(intensity_list)):
+                if intensity_list[i] is None:
+                    left_idx = i - 1
+                    right_idx = i + 1
+                    
+                    # 查找左侧非None值
+                    while left_idx >= 0 and intensity_list[left_idx] is None:
+                        left_idx -= 1
+                    
+                    # 查找右侧非None值
+                    while right_idx < len(intensity_list) and intensity_list[right_idx] is None:
+                        right_idx += 1
+                    
+                    # 如果左右两侧都找不到有效值，则无法插值
+                    if left_idx < 0 and right_idx >= len(intensity_list):
+                        print(f"mz: {mz}")
+                        raise ValueError("无法插值：所有数据点都是None")
+                    elif left_idx < 0 or right_idx >= len(intensity_list):
+                        # 如果只有一侧有值，使用该侧的值
+                        if left_idx >= 0:
+                            intensity_list[i] = intensity_list[left_idx]
+                        else:
+                            intensity_list[i] = intensity_list[right_idx]
+                    else:
+                        # 线性插值
+                        left_val = intensity_list[left_idx]
+                        right_val = intensity_list[right_idx]
+                        intensity_list[i] = left_val + (right_val - left_val) * (i - left_idx) / (right_idx - left_idx)
+
+        return intensity_list, ave_ppm
+    
+    def _binary_search(self, peaks: list[tuple], mz: float, ppm_tolerance: float) -> tuple[float, float]:
+        """使用二分法找到最后一个比mz小的peak对应的index"""
+        left, right = 0, len(peaks) - 1
+        target_idx = 0  # 默认为列表长度，表示所有元素都小于mz
+        
+        while left <= right:
+            mid = (left + right) // 2
+            if peaks[mid][0] <= mz:
+                target_idx = mid
+                left = mid + 1
+            else:
+                right = mid - 1
+        
+        # 从target_idx开始，找最接近的peak
+        min_ppm = float('inf')
+        index = target_idx
+        for i in range(target_idx, len(peaks)):
+            ppm = abs(peaks[i][0] - mz) / mz * 1e6
+            if ppm < min_ppm:
+                min_ppm = ppm
+                index = i
+            if (peaks[i][0] - mz)/mz * 1e6 > ppm_tolerance:
+                break
+        
+        if min_ppm < ppm_tolerance:
+            return peaks[index][1], min_ppm
+        else:
+            return 0, 0
+    
+    def _get_cluster_by_rt(self, rt_range: tuple[float, float]) -> list[tuple]:
+        """
+        获取指定保留时间范围内的峰
+        
+        参数:
+            rt_range: (rt_min, rt_max) 元组
             
-        print(f"共读取 {len(self.ms_objects)} 个谱图，其中 MS1: {len(self.ms1_objects)}，MS2: {len(self.ms2_objects)}")
+        返回:
+            峰列表，每个元素为 (mz, intensity) 元组
+        """
+        rt_low, rt_high = rt_range
+        bin_low = int(rt_low / self.rt_bin_size)
+        bin_high = int(rt_high / self.rt_bin_size)
+        low_index = -1
+        high_index = -1
+        for bin_index in range(bin_low, bin_high + 1):
+            if bin_index in self.rt_indices:
+                if low_index == -1:
+                    low_index = self.rt_indices[bin_index][0]
+                    break
+        
+        for bin_index in range(bin_high, bin_low - 1, -1):
+            if bin_index in self.rt_indices:
+                if high_index == -1:
+                    high_index = self.rt_indices[bin_index][1]
+                    break
+        
+        if low_index == -1 or high_index == -1:
+            result = []
+        else:
+            result = self.ms_clusters[low_index:high_index + 1]
+        return result
+    
+    def _format_ms_clusters(self, ms_objects: list[MSObject]):
+        """
+        将 MSObject 列表转换为簇格式
+        
+        参数:
+            ms_objects: MSObject 列表
+        """
+        # 按scan number排序
+        ms_objects.sort(key=lambda x: x.retention_time)
+
+        current_cluster = None
+        for ms_obj in ms_objects:
+            if ms_obj.level == 1:
+                if not current_cluster:
+                    current_cluster = {'rt': ms_obj.retention_time, 'ms1': ms_obj.peaks, 'ms2': []}
+                else:
+                    self.ms_clusters.append(current_cluster)
+                    rt_index = int(current_cluster['rt'] / self.rt_bin_size)
+                    if rt_index not in self.rt_indices:
+                        self.rt_indices[rt_index] = [len(self.ms_clusters) - 1, len(self.ms_clusters) - 1]
+                    self.rt_indices[rt_index][1] = len(self.ms_clusters) - 1
+                    current_cluster = {'rt': ms_obj.retention_time, 'ms1': ms_obj.peaks, 'ms2': []}
+            else:
+                current_cluster['ms2'].append({'mz': ms_obj.precursor.mz, 'mz_min': ms_obj.precursor.isolation_window[0], 'mz_max': ms_obj.precursor.isolation_window[1], 'peaks': ms_obj.peaks})
+        
+        if current_cluster:
+            self.ms_clusters.append(current_cluster)
         
     def _calculate_isotope_mzs(self, mz: float, charge: int, num_isotopes: int = 4) -> List[float]:
         """计算同位素峰的质荷比"""
@@ -101,189 +286,3 @@ class XICSExtractor:
             isotope_mzs.append(isotope_mz)
         return isotope_mzs
     
-    def _filter_ms2_by_rt_and_precursor(self, rt_start: float, rt_stop: float, precursor_mz: float) -> List[MSObject]:
-        """根据保留时间筛选 MS2 谱图"""
-        filtered_ms2 = []
-
-        start_second = int(rt_start)
-        while (start_second not in self.ms2_objects_indices) and start_second >= 0:
-            start_second -= 1
-        if start_second in self.ms2_objects_indices:
-            start_index = self.ms2_objects_indices[start_second]
-        else:
-            start_index = 0
-
-        for ms2 in self.ms2_objects[start_index:]:
-            if not (rt_start <= ms2.retention_time <= rt_stop):
-                continue
-
-            if not (ms2.precursor.isolation_window[0] <= precursor_mz <= ms2.precursor.isolation_window[1]):
-                continue
-
-            if (ms2.retention_time > rt_stop):
-                break
-            
-            filtered_ms2.append(ms2)
-            
-        return filtered_ms2
-
-    def _filter_ms2_by_precursor(self, precursor_mz: float) -> List[MSObject]:
-        """根据前体离子质荷比筛选 MS2 谱图"""
-        filtered_ms2 = []
-        
-        for ms2 in self.ms2_objects:
-            if not (ms2.precursor.isolation_window[0] <= precursor_mz <= ms2.precursor.isolation_window[1]):
-                continue
-            
-            filtered_ms2.append(ms2)
-            
-        return filtered_ms2
-    
-    def _extract_xic_from_ms1(self, mz: float, rt_start: float, rt_stop: float, ppm_tolerance: float) -> XICResult:
-        """从 MS1 谱图中提取 XIC"""
-        rt_values = []
-        intensity_values = []
-        mz_delta_ppm_sum = 0
-        count = 0
-        
-        mz_min = mz * (1 - ppm_tolerance / 1e6)
-        mz_max = mz * (1 + ppm_tolerance / 1e6)
-        
-        for ms1 in self.ms1_objects:
-            # 检查保留时间是否在范围内
-            if not (rt_start <= ms1.retention_time <= rt_stop):
-                continue
-                
-            # 查找最接近目标 m/z 的峰
-            closest_peak_idx = None
-            min_delta = float('inf')
-            
-            for i, peak_mz in enumerate([item[0] for item in ms1.peaks]):
-                if mz_min <= peak_mz <= mz_max:
-                    delta = abs(peak_mz - mz)
-                    if delta < min_delta:
-                        min_delta = delta
-                        closest_peak_idx = i
-            
-            if closest_peak_idx is not None:
-                peak_mz = ms1.peaks[closest_peak_idx][0]
-                peak_intensity = ms1.peaks[closest_peak_idx][1]
-                
-                rt_values.append(ms1.retention_time)
-                intensity_values.append(peak_intensity)
-                
-                # 计算 ppm 误差
-                ppm_error = (peak_mz - mz) / mz * 1e6
-                mz_delta_ppm_sum += abs(ppm_error)
-                count += 1
-            else:
-                # 如果没有找到峰，添加零强度
-                rt_values.append(ms1.retention_time)
-                intensity_values.append(0)
-        
-        # 计算平均 ppm 误差
-        avg_ppm_error = mz_delta_ppm_sum / count if count > 0 else 0
-        
-        return XICResult(
-            rt_array=np.array(rt_values),
-            intensity_array=np.array(intensity_values),
-            mz=mz,
-            ppm_error=avg_ppm_error
-        )
-    
-    def _extract_xic_from_ms2(self, mz: float, precursor_mz: float, rt_start: float, rt_stop: float, ppm_tolerance: float, filtered_ms2: List[MSObject] = None) -> XICResult:
-        """从 MS2 谱图中提取 XIC"""
-        rt_values = []
-        intensity_values = []
-        mz_delta_ppm_sum = 0
-        count = 0
-        
-        mz_min = mz * (1 - ppm_tolerance / 1e6)
-        mz_max = mz * (1 + ppm_tolerance / 1e6)
-        
-        ms2_list = filtered_ms2 if filtered_ms2 else self._filter_ms2_by_precursor(precursor_mz)
-        for ms2 in ms2_list:
-            # 检查保留时间是否在范围内
-            if not (rt_start <= ms2.retention_time <= rt_stop):
-                continue
-                
-            # 查找最接近目标 m/z 的峰
-            closest_peak_idx = None
-            min_delta = float('inf')
-            
-            for i, peak_mz in enumerate([item[0] for item in ms2.peaks]):
-                if mz_min <= peak_mz <= mz_max:
-                    delta = abs(peak_mz - mz)
-                    if delta < min_delta:
-                        min_delta = delta
-                        closest_peak_idx = i
-            
-            if closest_peak_idx is not None:
-                peak_mz = ms2.peaks[closest_peak_idx][0]
-                peak_intensity = ms2.peaks[closest_peak_idx][1]
-                
-                rt_values.append(ms2.retention_time)
-                intensity_values.append(peak_intensity)
-                
-                # 计算 ppm 误差
-                ppm_error = (peak_mz - mz) / mz * 1e6
-                mz_delta_ppm_sum += abs(ppm_error)
-                count += 1
-            else:
-                # 如果没有找到峰，添加零强度
-                rt_values.append(ms2.retention_time)
-                intensity_values.append(0)
-        
-        # 计算平均 ppm 误差
-        avg_ppm_error = mz_delta_ppm_sum / count if count > 0 else 0
-        
-        return XICResult(
-            rt_array=np.array(rt_values),
-            intensity_array=np.array(intensity_values),
-            mz=mz,
-            ppm_error=avg_ppm_error
-        )
-    
-    def extract_precursor_xics(self, precursor: PolymerInfo, num_isotopes: int = 4) -> List[XICResult]:
-        """提取前体离子的 XIC，包括同位素峰"""
-        if not self.ms1_objects:
-            raise ValueError("请先加载 mzML 文件")
-            
-        precursor_mz = precursor.mz
-        charge = precursor.charge
-        rt_start = precursor.rt_start
-        rt_stop = precursor.rt_stop
-        
-        # 计算同位素峰的质荷比
-        isotope_mzs = self._calculate_isotope_mzs(precursor_mz, charge, num_isotopes)
-        
-        # 提取每个同位素峰的 XIC
-        xic_results = []
-        for i, mz in enumerate(isotope_mzs):
-            xic = self._extract_xic_from_ms1(mz, rt_start, rt_stop, self.ppm_tolerance)
-            xic.ion_type = f"[M+{i}]"
-            xic.charge = charge
-            xic_results.append(xic)
-            
-        return xic_results
-    
-    def extract_fragment_xics(self, peptide_info: PolymerInfo) -> List[XICResult]:
-        """提取碎片离子的 XIC"""
-        if not self.ms2_objects:
-            raise ValueError("请先加载 mzML 文件")
-            
-        rt_start = peptide_info.rt_start
-        rt_stop = peptide_info.rt_stop
-
-        filtered_ms2 = self._filter_ms2_by_rt_and_precursor(rt_start, rt_stop, peptide_info.mz)
-            
-        # 提取每个碎片离子的 XIC
-        xic_results = []
-        for fragment in peptide_info.fragment_ions:
-            xic = self._extract_xic_from_ms2(fragment.mz, peptide_info.mz, rt_start, rt_stop, self.ppm_tolerance, filtered_ms2)
-            xic.ion_type = fragment.ion_type
-            xic.charge = fragment.charge
-            xic_results.append(xic)
-            
-        return xic_results
-
