@@ -1,3 +1,4 @@
+from math import ceil
 import numpy as np
 from typing import List
 from dataclasses import dataclass
@@ -24,13 +25,15 @@ class XICSExtractor:
         参数:
             mzml_file: mzML 文件路径
             ppm_tolerance: 质量容差 (ppm)
+            rt_bin_size: 保留时间分箱大小
+            num_threads: 并行处理的线程数
         """
         self.mzml_file = mzml_file
         self.ppm_tolerance = ppm_tolerance
         self.rt_bin_size = rt_bin_size
+        self.num_threads = num_threads
         self.ms_clusters = []
         self.rt_indices = {}
-        self.num_threads = num_threads
         
     def load_mzml(self):
         """加载 mzML 文件并转换为 MSObject 列表"""
@@ -53,7 +56,7 @@ class XICSExtractor:
             rt_stop = float(row["rt_stop"]) * 60
             rt = float(row["rt"]) * 60
             fragment_mzs = [float(mz) for mz in row["fragment_mz"].split(",")]
-            ms_cluster = self._get_cluster_by_rt((rt_start, rt_stop)).copy()
+            ms_cluster = self._get_cluster_by_rt_precursor((rt_start, rt_stop), precursor_mzs[0])
             xic_entries.append(
                 {
                     "precursor_mzs": precursor_mzs,
@@ -66,10 +69,9 @@ class XICSExtractor:
         xics = []
         if self.num_threads > 1:
             import multiprocessing as mp
-            from functools import partial
             
             # 将数据划分为多个块
-            chunk_size = max(1, len(xic_entries) // self.num_threads)
+            chunk_size = max(1, ceil(len(xic_entries) / self.num_threads))
             chunks = [xic_entries[i:i + chunk_size] for i in range(0, len(xic_entries), chunk_size)]
             
             # 创建进程池并并行处理
@@ -108,17 +110,7 @@ class XICSExtractor:
                 precursor_xics.append(XICResult(np.array(rt_list), np.array(precursor_intensity_list), precursor_mz, precursor_ave_ppm))
 
             # 获取所有对应范围的ms2谱图
-            ms2_specs = []
-            for cluster in ms_cluster:
-                check = False
-                for ms2_spec in cluster['ms2']:
-                    if ms2_spec['mz_min'] <= precursor_mzs[0] <= ms2_spec['mz_max']:
-                        ms2_specs.append(ms2_spec['peaks'])
-                        check = True
-                        break
-                if not check:
-                    ms2_specs.append(None)
-
+            ms2_specs = [cluster['ms2'] for cluster in ms_cluster]
             #fragment_mz的XIC
             fragment_xics = []
             for fragment_mz in fragment_mzs:
@@ -216,7 +208,7 @@ class XICSExtractor:
         else:
             return 0, 0
     
-    def _get_cluster_by_rt(self, rt_range: tuple[float, float]) -> list[tuple]:
+    def _get_cluster_by_rt_precursor(self, rt_range: tuple[float, float], precursor_mz: float) -> list[dict]:
         """
         获取指定保留时间范围内的峰
         
@@ -244,10 +236,25 @@ class XICSExtractor:
                     break
         
         if low_index == -1 or high_index == -1:
-            result = []
+            results = []
         else:
-            result = self.ms_clusters[low_index:high_index + 1]
-        return result
+            clusters = self.ms_clusters[low_index:high_index + 1]
+            greedy_index = 0
+            results = []
+            for cluster in clusters:
+                result = {'rt': cluster['rt'], 'ms1': cluster['ms1'], 'ms2': None}
+                filtered_ms2 = None
+                if greedy_index >= 0 and greedy_index < len(cluster['ms2']) and cluster['ms2'][greedy_index]['mz_min'] <= precursor_mz <= cluster['ms2'][greedy_index]['mz_max']:
+                    filtered_ms2 = cluster['ms2'][greedy_index]['peaks']
+                else:
+                    for index, ms2 in enumerate(cluster['ms2']):
+                        if ms2['mz_min'] <= precursor_mz <= ms2['mz_max']:
+                            filtered_ms2 = ms2['peaks']
+                            greedy_index = index
+                            break
+                result['ms2'] = filtered_ms2
+                results.append(result)
+        return results
     
     def _format_ms_clusters(self, ms_objects: list[MSObject]):
         """
