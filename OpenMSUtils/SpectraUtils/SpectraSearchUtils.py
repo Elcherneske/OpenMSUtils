@@ -4,7 +4,7 @@ from .MSObject import MSObject
 
 
 class BinnedSpectra:
-    def __init__(self, spectra: MSObject|list[Tuple[float, float]], bin_size: float=1.0):
+    def __init__(self, spectra: MSObject|List[Tuple[float, float]], bin_size: float=1.0):
         if isinstance(spectra, MSObject):
             self.spectra = spectra.peaks
         elif isinstance(spectra, list):
