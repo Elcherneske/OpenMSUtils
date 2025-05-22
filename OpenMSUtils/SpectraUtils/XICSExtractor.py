@@ -14,7 +14,7 @@ class XICResult:
     rt_array: np.ndarray  # 保留时间数组
     intensity_array: np.ndarray  # 强度数组
     mz: float  # 目标质荷比
-    ppm_error: float  # PPM 误差
+    ppm_array: list[float]  # PPM 误差
 
 class XICSExtractor:
     """XIC 提取器类"""
@@ -106,8 +106,8 @@ class XICSExtractor:
             precursor_xics = []
             ms1_specs = [cluster['ms1'] for cluster in ms_cluster]
             for precursor_mz in precursor_mzs:
-                precursor_intensity_list, precursor_ave_ppm = self._extract_xic_from_peaks(ms1_specs, precursor_mz, self.ppm_tolerance)
-                precursor_xics.append(XICResult(np.array(rt_list), np.array(precursor_intensity_list), precursor_mz, precursor_ave_ppm))
+                precursor_intensity_list, precursor_ppm_list = self._extract_xic_from_peaks(ms1_specs, precursor_mz, self.ppm_tolerance)
+                precursor_xics.append(XICResult(np.array(rt_list), np.array(precursor_intensity_list), precursor_mz, precursor_ppm_list))
 
             # 获取所有对应范围的ms2谱图
             ms2_specs = [cluster['ms2'] for cluster in ms_cluster]
@@ -117,34 +117,26 @@ class XICSExtractor:
                 if all(ms2_spec is None for ms2_spec in ms2_specs):
                     fragment_xics.append(XICResult(np.array(rt_list), np.array([0] * len(rt_list)), fragment_mz, 0))
                 else:
-                    fragment_intensity_list, fragment_ave_ppm = self._extract_xic_from_peaks(ms2_specs, fragment_mz, self.ppm_tolerance)
-                    fragment_xics.append(XICResult(np.array(rt_list), np.array(fragment_intensity_list), fragment_mz, fragment_ave_ppm))
+                    fragment_intensity_list, fragment_ppm_list = self._extract_xic_from_peaks(ms2_specs, fragment_mz, self.ppm_tolerance)
+                    fragment_xics.append(XICResult(np.array(rt_list), np.array(fragment_intensity_list), fragment_mz, fragment_ppm_list))
 
             xics.append((precursor_xics, fragment_xics))
         return xics
 
     
-    def _extract_xic_from_peaks(self, peaks: list[list[tuple]], mz: float, ppm_tolerance: float) -> tuple[List[float], float]:
+    def _extract_xic_from_peaks(self, peaks: list[list[tuple]], mz: float, ppm_tolerance: float) -> tuple[List[float], List[float]]:
         """从峰列表中提取XIC"""
         intensity_list = []
-        sum_ppm = 0
-        valid_ppm_count = 0
+        ppm_list = []
         
         for peak in peaks:
             if not peak:
                 intensity_list.append(None)
+                ppm_list.append(None)
             else:
                 intensity, ppm = self._binary_search(peak, mz, ppm_tolerance)
                 intensity_list.append(intensity)
-                if ppm > 0:  # 只有找到有效峰值时才累加ppm
-                    sum_ppm += ppm
-                    valid_ppm_count += 1
-        
-        # 计算平均ppm
-        if valid_ppm_count > 0:
-            ave_ppm = sum_ppm / valid_ppm_count
-        else:
-            ave_ppm = 0
+                ppm_list.append(ppm)
         
         # 线性插值处理缺失值（intensity为None的点）
         if None in intensity_list:
@@ -169,15 +161,22 @@ class XICSExtractor:
                         # 如果只有一侧有值，使用该侧的值
                         if left_idx >= 0:
                             intensity_list[i] = intensity_list[left_idx]
+                            ppm_list[i] = ppm_list[left_idx]
                         else:
                             intensity_list[i] = intensity_list[right_idx]
+                            ppm_list[i] = ppm_list[right_idx]
                     else:
                         # 线性插值
                         left_val = intensity_list[left_idx]
                         right_val = intensity_list[right_idx]
                         intensity_list[i] = left_val + (right_val - left_val) * (i - left_idx) / (right_idx - left_idx)
+                        
+                        # ppm也进行线性插值
+                        left_ppm = ppm_list[left_idx]
+                        right_ppm = ppm_list[right_idx]
+                        ppm_list[i] = left_ppm + (right_ppm - left_ppm) * (i - left_idx) / (right_idx - left_idx)
 
-        return intensity_list, ave_ppm
+        return intensity_list, ppm_list
     
     def _binary_search(self, peaks: list[tuple], mz: float, ppm_tolerance: float) -> tuple[float, float]:
         """使用二分法找到最后一个比mz小的peak对应的index"""
@@ -206,7 +205,7 @@ class XICSExtractor:
         if min_ppm < ppm_tolerance:
             return peaks[index][1], min_ppm
         else:
-            return 0, 0
+            return 0, ppm_tolerance
     
     def _get_cluster_by_rt_precursor(self, rt_range: tuple[float, float], precursor_mz: float) -> list[dict]:
         """
@@ -244,7 +243,7 @@ class XICSExtractor:
             for cluster in clusters:
                 result = {'rt': cluster['rt'], 'ms1': cluster['ms1'], 'ms2': None}
                 filtered_ms2 = None
-                if greedy_index >= 0 and greedy_index < len(cluster['ms2']) and cluster['ms2'][greedy_index]['mz_min'] <= precursor_mz <= cluster['ms2'][greedy_index]['mz_max']:
+                if 0 <= greedy_index < len(cluster['ms2']) and cluster['ms2'][greedy_index]['mz_min'] <= precursor_mz <= cluster['ms2'][greedy_index]['mz_max']:
                     filtered_ms2 = cluster['ms2'][greedy_index]['peaks']
                 else:
                     for index, ms2 in enumerate(cluster['ms2']):
