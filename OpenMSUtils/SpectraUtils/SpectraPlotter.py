@@ -73,7 +73,7 @@ class SpectraPlotter:
         
         # 绘制前体离子 XIC
         for xic in precursor_xics:
-            label = f"(m/z: {xic.mz:.4f}, ppm: {xic.ppm_error:.2f})"
+            label = f"(m/z: {xic.mz:.4f}, ppm: {np.average(np.array(xic.ppm_array)):.2f})"
             ax1.plot(xic.rt_array, xic.intensity_array, label=label)
             
         ax1.set_title(f"Precursor XIC")
@@ -83,7 +83,7 @@ class SpectraPlotter:
         
         # 绘制碎片离子 XIC
         for xic in fragment_xics:
-            label = f"(m/z: {xic.mz:.4f}, ppm: {xic.ppm_error:.2f})"
+            label = f"(m/z: {xic.mz:.4f}, ppm: {np.average(np.array(xic.ppm_array)):.2f})"
             ax2.plot(xic.rt_array, xic.intensity_array, label=label)
             
         ax2.set_title("Fragment XIC")
