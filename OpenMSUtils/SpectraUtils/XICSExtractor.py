@@ -45,13 +45,7 @@ class XICSExtractor:
         self.min_scans = min_scans
         self.peak_boundary = peak_boundary
 
-        # 根据mode设置是否调整XIC
-        if self.mode == 'rt_range':
-            self.adjust_xic = False
-        elif self.mode == 'scan_window':
-            self.adjust_xic = True
-        else:
-            self.adjust_xic = False
+        self.adjust_xic = False
         
         self.ms_clusters = []
         self.rt_indices = {}
@@ -109,6 +103,16 @@ class XICSExtractor:
                 isotope_mz = mz + (i * 1.00335483507) / charge
                 isotope_mzs.append(isotope_mz)
             return isotope_mzs
+        
+        # 判断是否 adjust_xic
+        if self.mode == 'rt_range':
+            self.adjust_xic = False
+        elif self.mode == 'scan_window':
+            self.adjust_xic = True
+        elif self.mode == 'fix_scan_window':
+            self.adjust_xic = False
+        else:
+            self.adjust_xic = False
 
         xic_entries = []
         for index, row in tqdm(df.iterrows(), total=len(df), desc="构建XIC Data"):
@@ -120,7 +124,7 @@ class XICSExtractor:
                 rt_start = float(row["rt_start"]) * 60
                 rt_stop = float(row["rt_stop"]) * 60
                 ms_cluster = self._get_ms_scan_by_rt_range((rt_start, rt_stop), precursor_mzs[0])
-            elif self.mode == 'scan_window':
+            elif self.mode == 'scan_window' or self.mode == 'fix_scan_window':
                 assert 'rt' in row and 'scan_window_num' in row, "scan_window mode requires rt and scan_window_num columns"
                 rt = float(row["rt"]) * 60
                 scan_window_num = int(row["scan_window_num"])
@@ -318,20 +322,20 @@ class XICSExtractor:
                     continue
                 all_boundaries.append((start_idx, stop_idx))
         
-        # 如果有足够的XIC，计算平均边界
+        # 如果有足够的XIC，计算最大边界
         if len(all_boundaries) > 0:
-            avg_start = int(sum([b[0] for b in all_boundaries]) / len(all_boundaries))
-            avg_stop = int(sum([b[1] for b in all_boundaries]) / len(all_boundaries))
+            max_start = max([b[0] for b in all_boundaries])
+            max_stop = min([b[1] for b in all_boundaries])
         else:
-            avg_start = len(xic.rt_array)//2 - self.min_scans//2
-            avg_stop = len(xic.rt_array)//2 + self.min_scans//2
+            max_start = len(xic.rt_array)//2 - self.min_scans//2
+            max_stop = len(xic.rt_array)//2 + self.min_scans//2
         
         # 调整所有XIC
         adjusted_precursor_xics = []
         for xic in precursor_xics:
             if len(xic.rt_array) > 0:
-                start_idx = max(0, avg_start)
-                stop_idx = min(len(xic.rt_array) - 1, avg_stop)
+                start_idx = max(0, max_start)
+                stop_idx = min(len(xic.rt_array) - 1, max_stop)
                 adjusted_xic = XICResult(
                     rt_array=xic.rt_array[start_idx:stop_idx + 1],
                     intensity_array=xic.intensity_array[start_idx:stop_idx + 1],
@@ -345,8 +349,8 @@ class XICSExtractor:
         adjusted_fragment_xics = []
         for xic in fragment_xics:
             if len(xic.rt_array) > 0:
-                start_idx = max(0, avg_start)
-                stop_idx = min(len(xic.rt_array) - 1, avg_stop)
+                start_idx = max(0, max_start)
+                stop_idx = min(len(xic.rt_array) - 1, max_stop)
                 adjusted_xic = XICResult(
                     rt_array=xic.rt_array[start_idx:stop_idx + 1],
                     intensity_array=xic.intensity_array[start_idx:stop_idx + 1],
