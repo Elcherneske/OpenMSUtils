@@ -157,8 +157,13 @@ class DecoyUtils:
     @staticmethod
     def calculate_similarity(seq1: str, seq2: str) -> float:
         """计算两个序列的相似度"""
-        matcher = SequenceMatcher(None, seq1, seq2)
-        return matcher.ratio()
+        if not seq1 or not seq2:
+            return 0.0
+        try:
+            matcher = SequenceMatcher(None, seq1, seq2)
+            return matcher.ratio()
+        except Exception:
+            return 0.0
     
     @staticmethod
     def generate_decoy_batch(sequences: List[str], 
@@ -196,8 +201,8 @@ if __name__ == "__main__":
     
     # 生成 reverse decoy
     decoy_seq, decoy_mods = DecoyUtils.generate_decoy(
-        sequence, 
-        modifications, 
+        sequence,
+        modifications,
         method="reverse", 
         keep_terminals=True
     )
@@ -208,21 +213,23 @@ if __name__ == "__main__":
     
     # 生成 shuffle decoy
     decoy_seq, decoy_mods = DecoyUtils.generate_decoy(
-        sequence, 
-        modifications, 
-        method="shuffle", 
+        sequence,
+        modifications,
+        method="shuffle",
         keep_terminals=True
     )
     print(f"\nShuffle Decoy: {decoy_seq}")
     print(f"Decoy 修饰: {decoy_mods}")
-    
+
     # 解析带修饰标记的序列
     modified_sequence = "PEP(Phospho)TI(Oxidation)DEK"
     clean_seq, mods = DecoyUtils.parse_modified_sequence(modified_sequence)
     print(f"\n带修饰序列: {modified_sequence}")
     print(f"解析后序列: {clean_seq}")
     print(f"解析后修饰: {mods}")
-    
+
     # 格式化带修饰的序列
     formatted = DecoyUtils.format_modified_sequence(clean_seq, mods)
-    print(f"格式化后: {formatted}") 
+    print(f"格式化后: {formatted}")
+
+    
