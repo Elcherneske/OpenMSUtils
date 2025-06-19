@@ -38,7 +38,7 @@ class MZMLConverter:
             
             # 获取scan number
             if 'index' in spectrum.attrib:
-                scan_number = int(spectrum.attrib.get('index'))
+                scan_number = int(spectrum.attrib.get('index')) + 1
             if 'id' in spectrum.attrib:
                 # 尝试从id中提取scan number
                 id_str = spectrum.attrib.get('id', '')
@@ -223,7 +223,7 @@ class MZMLConverter:
         
         # 设置基本属性
         spectrum.attrib = {
-            'index': str(ms_object.scan_number),
+            'index': str(ms_object.scan_number - 1),
             'id': f'scan={ms_object.scan_number}',
             'defaultArrayLength': str(len(ms_object.peaks))
         }
