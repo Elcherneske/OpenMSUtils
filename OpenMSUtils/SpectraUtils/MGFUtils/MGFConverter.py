@@ -1,59 +1,95 @@
 from typing import Any
+import re
 from ..MSObject import MSObject
-from .MGFObject import MGFSpectrum
 
 class MGFConverter:
     @staticmethod
-    def to_msobject(spectrum: MGFSpectrum) -> MSObject:
+    def to_msobject(lines: list[str]) -> MSObject:
         """
-        将MGF的Spectrum对象转换为MSObject
+        将MS1/MS2的Spectrum对象转换为MSObject
         
         Args:
-            spectrum: MGFSpectrum对象
+            lines: 包含MS1/MS2数据的行列表
             
-        Returns:
+        Returns:    
             MSObject对象
         """
         # 创建MSObject
         ms_object = MSObject()
-        
-        # 设置MS级别（MGF通常是MS2）
-        ms_object.set_level(2)
-        
-        # 设置scan信息
-        # MGF没有明确的scan number，使用0作为默认值
-        scan_number = 0
-        
-        # 从title中尝试提取scan number
-        if spectrum.title and "scan=" in spectrum.title.lower():
-            try:
-                scan_parts = spectrum.title.lower().split("scan=")[1].split()[0]
-                scan_number = int(scan_parts)
-            except (ValueError, IndexError):
-                pass
-        
-        ms_object.set_scan(scan_number=scan_number, retention_time=spectrum.rtinseconds)
-        
-        # 设置前体离子信息
-        ms_object.set_precursor(mz=spectrum.pepmass, charge=spectrum.charge)
-        
-        # 添加峰值
-        for mz, intensity in spectrum.peaks:
-            ms_object.add_peak(mz, intensity)
-        ms_object.sort_peaks() 
 
-        # 添加额外信息
-        for key, value in spectrum.additional_info.items():
-            ms_object.set_additional_info(key, value)
+        ms_level = 1
+        scan_number = -1
+        retention_time = 0.0
+        drift_time = 0.0
+        scan_window = (0.0, 0.0)
+        precursor_mz = 0.0
+        precursor_charge = 0
+        activation_method = 'unknown'
+        activation_energy = 0.0
+        isolation_window = (0.0, 0.0)
+        peaks = []
+
+        for line in lines:
+            line = line.strip()
+            
+            # 跳过空行
+            if not line or line.startswith('#') or line.startswith('BEGIN IONS') or line.startswith('END IONS'):
+                continue
+
+            if line.startswith('TITLE'):
+                if "scan=" in line:
+                    scan_number_str = line.split("scan=")[-1]
+                    match = re.search(r'(\d+)', scan_number_str)
+                    if match:
+                        scan_number = int(match.group(1))
+                continue
+            
+            # 开始新的谱图
+            if line.startswith('RTINSECONDS'):
+                parts = line.split('=')
+                if not len(parts) == 2:
+                    continue
+                retention_time = float(parts[1])
+                continue
+            
+            # 处理信息行
+            if line.startswith('PEPMASS'):
+                parts = line.split('=')
+                if not len(parts) == 2:
+                    continue
+                precursor_mz = float(parts[1].split()[0])
+                continue
+            
+            # 处理电荷行（仅MS2）
+            if line.startswith('CHARGE'):
+                parts = line.split('=')
+                if not len(parts) == 2:
+                    continue
+                if parts[1].endswith('+'):
+                    precursor_charge = int(parts[1][:-1])
+                elif parts[1].endswith('-'):
+                    precursor_charge = -int(parts[1][:-1])
+                else:
+                    precursor_charge = int(parts[1])
+                continue
+            
+            # 处理峰值数据
+            parts = line.split()
+            if not len(parts) >= 2:
+                continue
+            mz = float(parts[0])
+            intensity = float(parts[1])
+            peaks.append((mz, intensity))
         
-        # 如果有title，添加为额外信息
-        if spectrum.title:
-            ms_object.set_additional_info("TITLE", spectrum.title)
-        
+        ms_object.set_level(ms_level)
+        ms_object.set_scan(scan_number=scan_number, retention_time=retention_time, drift_time=drift_time, scan_window=scan_window)
+        ms_object.set_precursor(mz=precursor_mz, charge=precursor_charge, ref_scan_number=-1, activation_method=activation_method, activation_energy=activation_energy, isolation_window=isolation_window)
+        ms_object.set_peaks(peaks)
+
         return ms_object
     
     @staticmethod
-    def from_msobject(ms_object: MSObject) -> MGFSpectrum:
+    def from_msobject(ms_object: MSObject) -> list[str]:
         """
         将MSObject转换为MGF的Spectrum对象
         
@@ -61,33 +97,18 @@ class MGFConverter:
             ms_object: MSObject对象
             
         Returns:
-            MGFSpectrum对象
+            包含MGF数据的行列表
         """
-        # 创建MGFSpectrum
-        mgf_spectrum = MGFSpectrum()
+        lines = []
+        lines.append(f"BEGIN IONS")
+        lines.append(f"TITLE=Scan={ms_object.scan_number}")
+        lines.append(f"RTINSECONDS={ms_object.retention_time}")
+        lines.append(f"PEPMASS={ms_object.precursor_mz}")
+        lines.append(f"CHARGE={ms_object.precursor_charge}")
         
-        # 设置标题（使用scan number）
-        mgf_spectrum.title = f"Scan={ms_object.scan.scan_number}"
-        
-        # 设置肽质量（前体离子m/z）
-        if ms_object.precursor and ms_object.precursor.mz > 0:
-            mgf_spectrum.pepmass = ms_object.precursor.mz
-        
-        # 设置电荷
-        if ms_object.precursor and ms_object.precursor.charge != 0:
-            mgf_spectrum.charge = ms_object.precursor.charge
-        
-        # 设置保留时间
-        if ms_object.scan and ms_object.scan.retention_time > 0:
-            mgf_spectrum.rtinseconds = ms_object.scan.retention_time
-        
-        # 添加峰值
         for mz, intensity in ms_object.peaks:
-            mgf_spectrum.add_peak(mz, intensity)
+            lines.append(f"{mz}\t{intensity}")
         
-        # 添加额外信息
-        for key, value in ms_object.additional_info.items():
-            if key != "TITLE":  # 避免重复添加标题
-                mgf_spectrum.set_additional_info(key, value)
+        lines.append(f"END IONS")
         
-        return mgf_spectrum 
+        return lines

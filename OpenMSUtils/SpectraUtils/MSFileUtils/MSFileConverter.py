@@ -1,45 +1,86 @@
+import re
 from typing import Any
 from ..MSObject import MSObject
 from .MSFileObject import MSSpectrum
 
 class MSFileConverter:
     @staticmethod
-    def to_msobject(spectrum: MSSpectrum) -> MSObject:
+    def to_msobject(lines: list[str]) -> MSObject:
         """
         将MS1/MS2的Spectrum对象转换为MSObject
         
         Args:
-            spectrum: MSSpectrum对象
+            lines: 包含MS1/MS2数据的行列表
             
-        Returns:
+        Returns:    
             MSObject对象
         """
         # 创建MSObject
         ms_object = MSObject()
-        
-        # 设置MS级别
-        ms_object.set_level(spectrum.level)
-        
-        # 设置scan信息
-        ms_object.set_scan(scan_number=spectrum.scan_number, retention_time=spectrum.retention_time)
-        
-        # 设置前体离子信息（如果是MS2）
-        if spectrum.level == 2:
-            ms_object.set_precursor(mz=spectrum.precursor_mz, charge=spectrum.precursor_charge)
-        
-        # 添加峰值
-        for mz, intensity in spectrum.peaks:
-            ms_object.add_peak(mz, intensity)
-        ms_object.sort_peaks()
 
-        # 添加额外信息
-        for key, value in spectrum.additional_info.items():
-            ms_object.set_additional_info(key, value)
+        ms_level = 1
+        scan_number = -1
+        retention_time = 0.0
+        drift_time = 0.0
+        scan_window = (0.0, 0.0)
+        precursor_mz = 0.0
+        precursor_charge = 0
+        activation_method = 'unknown'
+        activation_energy = 0.0
+        isolation_window = (0.0, 0.0)
+        peaks = []
+
+        for line in lines:
+            line = line.strip()
+            
+            # 跳过空行
+            if not line or line.startswith('#') or line.startswith('H'):
+                continue
+            
+            # 开始新的谱图
+            if line.startswith('S'):
+                parts = line.split()
+                if len(parts) == 4:
+                    ms_level = 2
+                    scan_number = int(parts[1])
+                    precursor_mz = float(parts[3])
+                elif len(parts) == 3:
+                    ms_level = 1
+                    scan_number = int(parts[1])
+                continue
+            
+            # 处理信息行
+            if line.startswith('I'):
+                parts = line.split()
+                if len(parts) >= 3:
+                    if parts[1] == "RTime":
+                        retention_time = float(parts[2])
+                continue
+            
+            # 处理电荷行（仅MS2）
+            if line.startswith('Z') and ms_level == 2:
+                parts = line.split()
+                if len(parts) >= 2:
+                    precursor_charge = int(parts[1])
+                continue
+            
+            # 处理峰值数据
+            parts = line.split()
+            if not len(parts) >= 2:
+                continue
+            mz = float(parts[0])
+            intensity = float(parts[1])
+            peaks.append((mz, intensity))
         
+        ms_object.set_level(ms_level)
+        ms_object.set_scan(scan_number=scan_number, retention_time=retention_time, drift_time=drift_time, scan_window=scan_window)
+        ms_object.set_precursor(mz=precursor_mz, charge=precursor_charge, ref_scan_number=-1, activation_method=activation_method, activation_energy=activation_energy, isolation_window=isolation_window)
+        ms_object.set_peaks(peaks)
+
         return ms_object
     
     @staticmethod
-    def from_msobject(ms_object: MSObject) -> MSSpectrum:
+    def from_msobject(ms_object: MSObject) -> list[str]:
         """
         将MSObject转换为MS1/MS2的Spectrum对象
         
@@ -47,28 +88,19 @@ class MSFileConverter:
             ms_object: MSObject对象
             
         Returns:
-            MSSpectrum对象
+            包含MS1/MS2数据的行列表
         """
-        # 创建MSSpectrum
-        ms_spectrum = MSSpectrum(level=ms_object.level)
+        lines = []
+        if ms_object.level == 1:
+            lines.append(f"S\t{ms_object.scan_number}\t{ms_object.scan_number}")
+        elif ms_object.level == 2:
+            lines.append(f"S\t{ms_object.scan_number}\t{ms_object.scan_number}\t{ms_object.precursor_mz}")
+        lines.append(f"I\tRTime\t{ms_object.retention_time}")
+
+        if ms_object.level == 2:
+            lines.append(f"Z\t{ms_object.precursor_charge}")
         
-        # 设置扫描编号
-        ms_spectrum.scan_number = ms_object.scan.scan_number
-        
-        # 设置保留时间
-        ms_spectrum.retention_time = ms_object.scan.retention_time
-        
-        # 设置前体离子信息（如果是MS2）
-        if ms_object.level == 2 and ms_object.precursor:
-            ms_spectrum.precursor_mz = ms_object.precursor.mz
-            ms_spectrum.precursor_charge = ms_object.precursor.charge
-        
-        # 添加峰值
         for mz, intensity in ms_object.peaks:
-            ms_spectrum.add_peak(mz, intensity)
-        
-        # 添加额外信息
-        for key, value in ms_object.additional_info.items():
-            ms_spectrum.set_additional_info(key, value)
-        
-        return ms_spectrum 
+            lines.append(f"{mz}\t{intensity}")
+
+        return lines

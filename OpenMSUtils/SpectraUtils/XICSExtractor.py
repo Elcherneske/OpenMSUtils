@@ -1,9 +1,7 @@
 from math import ceil
-import numpy as np
 from typing import List
 from dataclasses import dataclass
 from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor
 import pandas as pd
 from .MZMLUtils import MZMLReader
 from .MSObject import MSObject
@@ -53,8 +51,8 @@ class XICSExtractor:
     def load_mzml(self):
         """加载 mzML 文件并转换为 MSObject 列表"""
         print(f"正在读取 mzML 文件: {self.mzml_file}")
-        reader = MZMLReader()
-        ms_objects = reader.read_to_msobjects(self.mzml_file, parallel=True)
+        reader = MZMLReader(thread_num=self.num_threads)
+        ms_objects = reader.read_to_msobjects(self.mzml_file)
         
         if not ms_objects:
             raise ValueError("未能从 mzML 文件中读取到谱图数据")
@@ -502,7 +500,7 @@ class XICSExtractor:
                     self.rt_indices[rt_index][1] = len(self.ms_clusters) - 1
                     current_cluster = {'rt': ms_obj.retention_time, 'ms1': ms_obj.peaks, 'ms2': []}
             else:
-                current_cluster['ms2'].append({'mz': ms_obj.precursor.mz, 'mz_min': ms_obj.precursor.isolation_window[0], 'mz_max': ms_obj.precursor.isolation_window[1], 'peaks': ms_obj.peaks})
+                current_cluster['ms2'].append({'mz': ms_obj.precursor_mz, 'mz_min': ms_obj.precursor_window[0], 'mz_max': ms_obj.precursor_window[1], 'peaks': ms_obj.peaks})
         
         if current_cluster:
             self.ms_clusters.append(current_cluster)
