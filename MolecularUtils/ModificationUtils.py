@@ -8,22 +8,21 @@ class Modification():
     def __init__(self, name: str, formula: str):
         self.name = name
         self.formula = formula
-
-    @property
-    def mass(self):
-        # 处理特殊的加合物表示法，如 [M+H+], [M+NH3] 等
-        adduct_pattern = r'\[M([\+\-].+)\]'
-        match = re.match(adduct_pattern, self.formula)
-        if match:
-            adduct = match.group(1)
-            if adduct.startswith('+'):
-                return EnhancedFormula(adduct[1:]).isotope.mass
-            elif adduct.startswith('-'):
-                return -EnhancedFormula(adduct[1:]).isotope.mass
-            else:
-                raise ValueError(f"Invalid adduct format: {self.formula}")
+        if formula.startswith('[M') and formula.endswith(']'):
+            self.chemical_formula = formula[3:-1]
+            self.formula_type = formula[2] # + or -
+        else:
+            raise ValueError(f"Invalid adduct format: {formula}")
+        
+        self.mass = EnhancedFormula(self.chemical_formula).isotope.mass
+        if self.formula_type == '+':
+            self.mass = self.mass
+        elif self.formula_type == '-':
+            self.mass = -self.mass
         else:
             raise ValueError(f"Invalid adduct format: {self.formula}")
+        
+        self.charge = EnhancedFormula(self.chemical_formula).isotope.charge
 
 class ModificationUtils():
     @staticmethod

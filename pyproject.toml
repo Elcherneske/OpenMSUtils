@@ -14,7 +14,7 @@ keywords = [
   "Fasta Database",
   "Nucleic Acid",
 ]
-license = {text = "MIT License"}
+license = {text = "Apache License"}
 maintainers = [
   {name = "Yucheng Liao", email = "ycliao@zju.edu.cn"},
 ]

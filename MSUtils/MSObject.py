@@ -1,4 +1,6 @@
-class MSObject:
+import numpy as np
+
+class SpectraObject:
     def __init__(self):
         self._level = 1
         self._scan = {
@@ -8,7 +10,7 @@ class MSObject:
             'scan_window': (0.0, 0.0),
         }
         self._precursor = None
-        self._peaks = []
+        self._peaks = np.array([], dtype=np.float32)
     
     @property
     def level(self):
@@ -67,18 +69,15 @@ class MSObject:
             return self._precursor['isolation_window']
         else:
             return None
-
-    def add_peak(self, mz:float, intensity:float):
-        self._peaks.append((mz, intensity))
     
     def clear_peaks(self):
-        self._peaks = []
+        self._peaks = np.array([], dtype=np.float32)
     
-    def set_peaks(self, peaks:list[tuple[float, float, int]] | list[tuple[float, float]]):
-        self._peaks = peaks
+    def set_peaks(self, peaks: list[tuple[float, float]] | list[tuple[float, float, float]]):
+        self._peaks = np.array(peaks, dtype=np.float32)
     
     def sort_peaks(self):
-        self._peaks.sort(key=lambda x: x[0])
+        self._peaks = self._peaks[self._peaks[:, 0].argsort()]
     
     def set_level(self, level:int):
         self._level = level
@@ -112,7 +111,8 @@ class MSObject:
         self._scan['rt'] = retention_time
         self._scan['dt'] = drift_time
         self._scan['scan_window'] = scan_window
-    
+
+
 if __name__ == "__main__":
     pass
 

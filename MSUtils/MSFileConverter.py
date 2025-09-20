@@ -1,22 +1,19 @@
-import re
-from typing import Any
-from ..MSObject import MSObject
-from .MSFileObject import MSSpectrum
+from .MSObject import SpectraObject
 
 class MSFileConverter:
     @staticmethod
-    def to_msobject(lines: list[str]) -> MSObject:
+    def to_spectra_object(lines: list[str]) -> SpectraObject:
         """
-        将MS1/MS2的Spectrum对象转换为MSObject
+        将MS1/MS2的Spectrum对象转换为SpectraObject
         
         Args:
-            lines: 包含MS1/MS2数据的行列表
+            lines: 包含Spectrum数据的行列表
             
         Returns:    
-            MSObject对象
+            SpectraObject对象
         """
         # 创建MSObject
-        ms_object = MSObject()
+        spectra_object = SpectraObject()
 
         ms_level = 1
         scan_number = -1
@@ -72,35 +69,35 @@ class MSFileConverter:
             intensity = float(parts[1])
             peaks.append((mz, intensity))
         
-        ms_object.set_level(ms_level)
-        ms_object.set_scan(scan_number=scan_number, retention_time=retention_time, drift_time=drift_time, scan_window=scan_window)
-        ms_object.set_precursor(mz=precursor_mz, charge=precursor_charge, ref_scan_number=-1, activation_method=activation_method, activation_energy=activation_energy, isolation_window=isolation_window)
-        ms_object.set_peaks(peaks)
+        spectra_object.set_level(ms_level)
+        spectra_object.set_scan(scan_number=scan_number, retention_time=retention_time, drift_time=drift_time, scan_window=scan_window)
+        spectra_object.set_precursor(mz=precursor_mz, charge=precursor_charge, ref_scan_number=-1, activation_method=activation_method, activation_energy=activation_energy, isolation_window=isolation_window)
+        spectra_object.set_peaks(peaks)
 
-        return ms_object
+        return spectra_object
     
     @staticmethod
-    def from_msobject(ms_object: MSObject) -> list[str]:
+    def from_spectra_object(spectra_object: SpectraObject) -> list[str]:
         """
-        将MSObject转换为MS1/MS2的Spectrum对象
+        将SpectraObject转换为MS1/MS2的Spectrum对象
         
         Args:
-            ms_object: MSObject对象
+            spectra_object: SpectraObject对象
             
         Returns:
-            包含MS1/MS2数据的行列表
+            包含SpectraObject数据的行列表
         """
         lines = []
-        if ms_object.level == 1:
-            lines.append(f"S\t{ms_object.scan_number}\t{ms_object.scan_number}")
-        elif ms_object.level == 2:
-            lines.append(f"S\t{ms_object.scan_number}\t{ms_object.scan_number}\t{ms_object.precursor_mz}")
-        lines.append(f"I\tRTime\t{ms_object.retention_time}")
+        if spectra_object.level == 1:
+            lines.append(f"S\t{spectra_object.scan_number}\t{spectra_object.scan_number}")
+        elif spectra_object.level == 2:
+            lines.append(f"S\t{spectra_object.scan_number}\t{spectra_object.scan_number}\t{spectra_object.precursor_mz}")
+        lines.append(f"I\tRTime\t{spectra_object.retention_time}")
 
-        if ms_object.level == 2:
-            lines.append(f"Z\t{ms_object.precursor_charge}")
+        if spectra_object.level == 2:
+            lines.append(f"Z\t{spectra_object.precursor_charge}")
         
-        for mz, intensity in ms_object.peaks:
+        for mz, intensity in spectra_object.peaks:
             lines.append(f"{mz}\t{intensity}")
 
         return lines

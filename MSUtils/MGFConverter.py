@@ -1,21 +1,20 @@
-from typing import Any
 import re
-from ..MSObject import MSObject
+from .MSObject import SpectraObject
 
 class MGFConverter:
     @staticmethod
-    def to_msobject(lines: list[str]) -> MSObject:
+    def to_spectra_object(lines: list[str]) -> SpectraObject:
         """
-        将MS1/MS2的Spectrum对象转换为MSObject
+        将MS1/MS2的Spectrum对象转换为SpectraObject
         
         Args:
             lines: 包含MS1/MS2数据的行列表
             
         Returns:    
-            MSObject对象
+            SpectraObject对象
         """
-        # 创建MSObject
-        ms_object = MSObject()
+        # 创建SpectraObject
+        spectra_object = SpectraObject()
 
         ms_level = 1
         scan_number = -1
@@ -81,32 +80,32 @@ class MGFConverter:
             intensity = float(parts[1])
             peaks.append((mz, intensity))
         
-        ms_object.set_level(ms_level)
-        ms_object.set_scan(scan_number=scan_number, retention_time=retention_time, drift_time=drift_time, scan_window=scan_window)
-        ms_object.set_precursor(mz=precursor_mz, charge=precursor_charge, ref_scan_number=-1, activation_method=activation_method, activation_energy=activation_energy, isolation_window=isolation_window)
-        ms_object.set_peaks(peaks)
+        spectra_object.set_level(ms_level)
+        spectra_object.set_scan(scan_number=scan_number, retention_time=retention_time, drift_time=drift_time, scan_window=scan_window)
+        spectra_object.set_precursor(mz=precursor_mz, charge=precursor_charge, ref_scan_number=-1, activation_method=activation_method, activation_energy=activation_energy, isolation_window=isolation_window)
+        spectra_object.set_peaks(peaks)
 
-        return ms_object
+        return spectra_object
     
     @staticmethod
-    def from_msobject(ms_object: MSObject) -> list[str]:
+    def from_spectra_object(spectra_object: SpectraObject) -> list[str]:
         """
-        将MSObject转换为MGF的Spectrum对象
+        将SpectraObject转换为MGF的Spectrum对象
         
         Args:
-            ms_object: MSObject对象
+            spectra_object: SpectraObject对象
             
         Returns:
             包含MGF数据的行列表
         """
         lines = []
         lines.append(f"BEGIN IONS")
-        lines.append(f"TITLE=Scan={ms_object.scan_number}")
-        lines.append(f"RTINSECONDS={ms_object.retention_time}")
-        lines.append(f"PEPMASS={ms_object.precursor_mz}")
-        lines.append(f"CHARGE={ms_object.precursor_charge}")
+        lines.append(f"TITLE=Scan={spectra_object.scan_number}")
+        lines.append(f"RTINSECONDS={spectra_object.retention_time}")
+        lines.append(f"PEPMASS={spectra_object.precursor_mz}")
+        lines.append(f"CHARGE={spectra_object.precursor_charge}")
         
-        for mz, intensity in ms_object.peaks:
+        for mz, intensity in spectra_object.peaks:
             lines.append(f"{mz}\t{intensity}")
         
         lines.append(f"END IONS")

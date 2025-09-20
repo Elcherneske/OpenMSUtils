@@ -3,22 +3,22 @@ import re
 import struct
 import zlib
 from lxml import etree
-from ..MSObject import MSObject
+from .MSObject import SpectraObject
 
 class MZMLConverter:
     @staticmethod
-    def to_msobject(spectrum: etree._Element | str) -> MSObject:
+    def to_spectra_object(spectrum: etree._Element | str) -> SpectraObject:
         """
-        将mzML的Spectrum对象转换为MSObject
+        将mzML的Spectrum对象转换为SpectraObject
         
         Args:
             spectrum: MZMLObject中的Spectrum对象
             
         Returns:
-            MSObject对象
+            SpectraObject对象
         """
         # 创建MSObject
-        ms_object = MSObject()
+        spectra_object = SpectraObject()
 
         if not isinstance(spectrum, etree._Element):
             spectrum = etree.fromstring(spectrum)
@@ -114,9 +114,9 @@ class MZMLConverter:
         isolation_window = (isolation_target - isolation_window[0], isolation_target + isolation_window[1])
 
         # 设置MS级别
-        ms_object.set_level(ms_level)
+        spectra_object.set_level(ms_level)
         
-        ms_object.set_scan(scan_number, retention_time, drift_time, scan_window)
+        spectra_object.set_scan(scan_number, retention_time, drift_time, scan_window)
 
         ref_scan_number = -1
         precursor_element_list = spectrum.findall('.//ns:precursor', namespaces=ns)
@@ -127,7 +127,7 @@ class MZMLConverter:
                 if 'scan=' in ref_id:
                     ref_scan_number = int(ref_id.split('scan=')[1].split()[0]) + 1
 
-            ms_object.set_precursor(precursor_mz, precursor_charge, ref_scan_number, activation_method, activation_energy, isolation_window)
+            spectra_object.set_precursor(precursor_mz, precursor_charge, ref_scan_number, activation_method, activation_energy, isolation_window)
             
         
         if mz_array_element is None:
@@ -184,20 +184,20 @@ class MZMLConverter:
         # 如果找到了m/z和intensity数组，则添加峰值
         if mz_array and intensity_array:
             assert len(mz_array) == len(intensity_array)
-            ms_object.clear_peaks()  # 清除现有峰值
+            spectra_object.clear_peaks()  # 清除现有峰值
             peaks = [(mz, intensity) for mz, intensity in zip(mz_array, intensity_array)]
             peaks.sort(key=lambda x: x[0])
-            ms_object.set_peaks(peaks)
+            spectra_object.set_peaks(peaks)
         
-        return ms_object
+        return spectra_object
     
     @staticmethod
-    def from_msobject(ms_object: MSObject) -> etree._Element:
+    def from_spectra_object(spectra_object: SpectraObject) -> etree._Element:
         """
-        将MSObject转换为mzML的Spectrum对象
+        将SpectraObject转换为mzML的Spectrum对象
         
         Args:
-            ms_object: MSObject对象
+            spectra_object: SpectraObject对象
             
         Returns:
             MZMLObject中的Spectrum对象
@@ -206,9 +206,9 @@ class MZMLConverter:
         
         # 设置基本属性
         spectrum.attrib = {
-            'index': str(ms_object.scan_number - 1),
-            'id': f'scan={ms_object.scan_number}',
-            'defaultArrayLength': str(len(ms_object.peaks))
+            'index': str(spectra_object.scan_number - 1),
+            'id': f'scan={spectra_object.scan_number}',
+            'defaultArrayLength': str(len(spectra_object.peaks))
         }
         
         # 添加MS级别
@@ -217,7 +217,7 @@ class MZMLConverter:
             'cvRef': 'MS',
             'accession': 'MS:1000511',
             'name': 'ms level',
-            'value': str(ms_object.level)
+            'value': str(spectra_object.level)
         }
         spectrum.append(ms_level_param)
         
@@ -233,20 +233,20 @@ class MZMLConverter:
             'cvRef': 'MS',
             'accession': 'MS:1000016',
             'name': 'scan start time',
-            'value': str(ms_object.retention_time / 60),  # 转换为分钟
+            'value': str(spectra_object.retention_time / 60),  # 转换为分钟
             'unitCvRef': 'UO',
             'unitAccession': 'UO:0000031',
             'unitName': 'minute'
         }
         scan.append(rt_param)
 
-        if ms_object.drift_time > 0:
+        if spectra_object.drift_time > 0:
             dt_param = etree.Element('cvParam')
             dt_param.attrib = {
                 'cvRef': 'MS',
                 'accession': 'MS:1002476',
                 'name': 'ion mobility drift time',
-                'value': str(ms_object.scan.drift_time * 1000),  # 转换为毫秒
+                'value': str(spectra_object.scan.drift_time * 1000),  # 转换为毫秒
                 'unitCvRef': 'UO',
                 'unitAccession': 'UO:0000028',
                 'unitName': 'millisecond'
@@ -263,14 +263,14 @@ class MZMLConverter:
             'cvRef': 'MS',
             'accession': 'MS:1000501',
             'name': 'scan window lower limit',
-            'value': str(ms_object.scan.scan_window[0])
+            'value': str(spectra_object.scan.scan_window[0])
         }
         high_param = etree.Element('cvParam')
         high_param.attrib = {
             'cvRef': 'MS',
             'accession': 'MS:1000500',
             'name': 'scan window upper limit',
-            'value': str(ms_object.scan.scan_window[1])
+            'value': str(spectra_object.scan.scan_window[1])
         }
         scan_window.append(low_param)
         scan_window.append(high_param)
@@ -279,20 +279,20 @@ class MZMLConverter:
         scan_list.append(scan)
 
         # 添加precursor
-        if not ms_object.precursor is None:
+        if not spectra_object.precursor is None:
             precursor_list = etree.Element('precursorList')
             precursor_list.attrib = {
                 'count': str(1)
             }
             precursor = etree.Element('precursor')
             precursor.attrib = {
-                'spectrumRef': f'scan={ms_object.precursor.ref_scan_number}'
+                'spectrumRef': f'scan={spectra_object.precursor.ref_scan_number}'
             }
 
             isolation_window = etree.Element('isolationWindow')
-            target = (ms_object.precursor.isolation_window[0] + ms_object.precursor.isolation_window[1]) / 2
-            low_offset = target - ms_object.precursor.isolation_window[0]
-            high_offset = ms_object.precursor.isolation_window[1] - target
+            target = (spectra_object.precursor.isolation_window[0] + spectra_object.precursor.isolation_window[1]) / 2
+            low_offset = target - spectra_object.precursor.isolation_window[0]
+            high_offset = spectra_object.precursor.isolation_window[1] - target
             target_param = etree.Element('cvParam')
             target_param.attrib = {
                 'cvRef': 'MS',
@@ -329,16 +329,16 @@ class MZMLConverter:
                 'cvRef': 'MS',
                 'accession': 'MS:1000744',
                 'name': 'selected ion m/z',
-                'value': str(ms_object.precursor_mz)
+                'value': str(spectra_object.precursor_mz)
             }
             selected_ion.append(mz_param)
-            if ms_object.precursor.charge != 0:
+            if spectra_object.precursor.charge != 0:
                 charge_param = etree.Element('cvParam')
                 charge_param.attrib = {
                     'cvRef': 'MS',
                     'accession': 'MS:1000041',
                     'name': 'charge state',
-                    'value': str(ms_object.precursor_charge)
+                    'value': str(spectra_object.precursor_charge)
                 }
                 selected_ion.append(charge_param)
             selected_ion_list.append(selected_ion)
@@ -350,16 +350,16 @@ class MZMLConverter:
                 'cvRef': 'MS',
                 'accession': 'MS:1000133',
                 'name': 'collision energy',
-                'value': str(ms_object.precursor['activation_method'])
+                'value': str(spectra_object.precursor['activation_method'])
             }
             activation.append(method_param)
-            if ms_object.precursor['activation_energy'] > 0:
+            if spectra_object.precursor['activation_energy'] > 0:
                 energy_param = etree.Element('cvParam')
                 energy_param.attrib = {
                     'cvRef': 'MS',
                     'accession': 'MS:1000045',
                     'name': 'collision energy',
-                    'value': str(ms_object.precursor['activation_energy'])
+                    'value': str(spectra_object.precursor['activation_energy'])
                 }
                 activation.append(energy_param)
             precursor.append(activation)
@@ -367,8 +367,8 @@ class MZMLConverter:
             spectrum.append(precursor_list)
 
         # 添加peak_list
-        mz_values = [peak[0] for peak in ms_object.peaks]
-        intensity_values = [peak[1] for peak in ms_object.peaks]
+        mz_values = [peak[0] for peak in spectra_object.peaks]
+        intensity_values = [peak[1] for peak in spectra_object.peaks]
         binary_data_array_list = etree.Element('binaryDataArrayList')
         binary_data_array_list.attrib = {
             'count': str(2)
