@@ -6,23 +6,39 @@ import re
 
 class Modification():
     def __init__(self, name: str, formula: str):
-        self.name = name
-        self.formula = formula
+        self._name = name
+        self._formula = formula
         if formula.startswith('[M') and formula.endswith(']'):
-            self.chemical_formula = formula[3:-1]
-            self.formula_type = formula[2] # + or -
+            self._chemical_formula = formula[3:-1]
+            self._formula_type = formula[2] # + or -
         else:
             raise ValueError(f"Invalid adduct format: {formula}")
         
-        self.mass = EnhancedFormula(self.chemical_formula).isotope.mass
-        if self.formula_type == '+':
-            self.mass = self.mass
-        elif self.formula_type == '-':
-            self.mass = -self.mass
+        self._mass = EnhancedFormula(self._chemical_formula).isotope.mass
+        if self._formula_type == '+':
+            self._mass = self._mass
+        elif self._formula_type == '-':
+            self._mass = -self._mass
         else:
-            raise ValueError(f"Invalid adduct format: {self.formula}")
+            raise ValueError(f"Invalid adduct format: {self._formula}")
         
-        self.charge = EnhancedFormula(self.chemical_formula).isotope.charge
+        self._charge = EnhancedFormula(self._chemical_formula).isotope.charge
+    
+    @property
+    def mass(self):
+        return self._mass
+    
+    @property
+    def charge(self):
+        return self._charge
+
+    @property
+    def name(self):
+        return self._name
+    
+    @property
+    def formula(self):
+        return self._formula
 
 class ModificationUtils():
     @staticmethod

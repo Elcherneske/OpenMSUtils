@@ -17,7 +17,7 @@ class DecoyUtils:
                        modifications: Optional[Dict[int, str]] = None, 
                        method: str = "reverse", 
                        keep_terminals: bool = True,
-                       similarity_threshold: float = 0.5,
+                       similarity_threshold: float = 1.0,
                        max_attempts: int = 10) -> Tuple[str, Dict[int, str]]:
         """
         生成 decoy 序列

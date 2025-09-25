@@ -7,7 +7,7 @@ requires = [
 
 [project]
 name = "OpenMSUtils"
-description = "A small package to process the MS related data"
+description = "An open-source repository for easily processing MS-related datas"
 readme = "README.md"
 keywords = [
   "Mass Spectra",
@@ -34,7 +34,6 @@ dependencies = [
     "lxml",
     "setuptools_scm",
     "tqdm",
-    "matplotlib",
     "numpy",
     "pandas",
 ]
