@@ -28,10 +28,10 @@ amino_acids = {
 ion_mod = {
     'a': {"formula": "[M-CO]", "mass": -EnhancedFormula("CO").isotope.mass}, 
     'b': {"formula": "[M]", "mass": 0.0},
-    'c': {"formula": "[M+NH]", "mass": EnhancedFormula("NH").isotope.mass},
-    'x': {"formula": "[M+CO]", "mass": EnhancedFormula("CO").isotope.mass}, 
-    'y': {"formula": "[M]", "mass": 0.0}, 
-    'z': {"formula": "[M-NH]", "mass": -EnhancedFormula("NH").isotope.mass}
+    'c': {"formula": "[M+NH2]", "mass": EnhancedFormula("NH2").isotope.mass},
+    'x': {"formula": "[M+CO2]", "mass": EnhancedFormula("CO2").isotope.mass}, 
+    'y': {"formula": "[M+H2O]", "mass": EnhancedFormula('H2O').isotope.mass}, 
+    'z': {"formula": "[M-NH3+H20]", "mass": EnhancedFormula('H2O').isotope.mass - EnhancedFormula("NH3").isotope.mass}
 }
 
 class Peptide():
@@ -40,9 +40,7 @@ class Peptide():
         modifications: dict = None,
         charge: int = 0,
         adduct: str = '[M+H+]',
-        fragments_type: list[str] = None,
-        end_C_modification: Modification = None,
-        end_N_modification: Modification = None
+        fragments_type: list[str] = None
     ):
         """
         sequence: str (N-terminus -> C-terminus)
@@ -55,26 +53,10 @@ class Peptide():
         else:
             self._modifications = modifications
 
-        if end_C_modification is None:
-            self._end_C_modification = Modification('C-term', '[M+OH]')
-        else:
-            self._end_C_modification = end_C_modification
-
-        if end_N_modification is None:
-            self._end_N_modification = Modification('N-term', '[M+H]')
-        else:
-            self._end_N_modification = end_N_modification
-
         if fragments_type is None:
             self._fragments_type = ['b', 'y']
         else:
             self._fragments_type = fragments_type
-    
-    def set_C_modification(self, end_C_modification: Modification):
-        self._end_C_modification = end_C_modification
-    
-    def set_N_modification(self, end_N_modification: Modification):
-        self._end_N_modification = end_N_modification
     
     def add_modification(self, index: int, modification: Modification):
         if index in self._modifications:
@@ -98,8 +80,7 @@ class Peptide():
         total_mass = sum(amino_acids[aa]["mass"] for aa in self._sequence)
         for index, modification in self._modifications.items():
             total_mass += modification.mass
-        total_mass += self._end_C_modification.mass
-        total_mass += self._end_N_modification.mass
+        total_mass += EnhancedFormula('H2O').isotope.mass
         return total_mass
 
     @property
@@ -112,16 +93,16 @@ class Peptide():
     def fragments(self):
         if self._charge == 0:
             raise ValueError("Charge is 0, no fragments can be calculated")
+        
+        max_charge = abs(self._charge)
+        if max_charge == 1:
+            max_charge = 2
             
         charge_sign = 1 if self._charge > 0 else -1
-        max_fragment_charge = abs(self._charge)
-        if max_fragment_charge == 1:
-            max_fragment_charge = 2
-
         fragments = {}
         for ion_type in self._fragments_type:
             fragment_masses = self._generate_fragments(ion_type)
-            for z in range(1, max_fragment_charge):
+            for z in range(1, max_charge + 1):
                 charge_symbol = '+' if charge_sign > 0 else '-'
                 fragment_key = f"{ion_type}{z}{charge_symbol}"
                 fragments[fragment_key] = [(mass + (z / abs(self._adduct.charge)) * self._adduct.mass) / z for mass in fragment_masses]
@@ -131,7 +112,7 @@ class Peptide():
     def _generate_fragments(self, ion_type: str):
         fragments = []
         if ion_type in ["a", "b", "c"]:
-            fragment_mass = self._end_N_modification.mass
+            fragment_mass = 0
             for i, aa in enumerate(self._sequence):
                 fragment_mass += amino_acids[aa]["mass"]
                 if i in self._modifications:
@@ -139,7 +120,7 @@ class Peptide():
                 fragments.append(fragment_mass + ion_mod[ion_type]["mass"])
 
         if ion_type in ["x", "y", "z"]:
-            fragment_mass = self._end_C_modification.mass
+            fragment_mass = 0
             for i in reversed(range(len(self._sequence))):
                 aa = self._sequence[i]
                 fragment_mass += amino_acids[aa]["mass"]

@@ -1,6 +1,6 @@
-from .ModificationUtils import ModificationUtils
+from .ModificationUtils import ModificationUtils, Modification
 from .ProteinUtils import Peptide
-from .NucleotideUtils import Nucleotide, Oligonucleotide
+from .NucleicAcidUtils import Nucleotide, Oligonucleotide
 
-__all__ = ["ModificationUtils", "Peptide", "Nucleotide", "Oligonucleotide"]
+__all__ = ["ModificationUtils", "Modification", "Peptide", "Nucleotide", "Oligonucleotide"]
 
