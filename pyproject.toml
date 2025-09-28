@@ -32,14 +32,24 @@ dynamic = [
 ]
 dependencies = [
     "lxml",
-    "setuptools_scm",
     "tqdm",
     "numpy",
     "pandas",
 ]
 
 [tool.setuptools]
-packages = ["OpenMSUtils"]
+packages = [
+    "AnalysisUtils",
+    "MolecularUtils", 
+    "MSUtils",
+    "SpectraUtils",
+]
+
+[tool.setuptools.package-data]
+"*" = ["*.py", "*.pyi"]
+
+[tool.setuptools_scm]
+write_to = "OpenMSUtils/_version.py"
 
 [tool.black]
 line-length = 120
