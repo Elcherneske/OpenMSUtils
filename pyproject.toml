@@ -49,7 +49,7 @@ packages = [
 "*" = ["*.py", "*.pyi"]
 
 [tool.setuptools_scm]
-write_to = "OpenMSUtils/_version.py"
+write_to = "_version.py"
 
 [tool.black]
 line-length = 120
