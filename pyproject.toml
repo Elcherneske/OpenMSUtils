@@ -41,10 +41,6 @@ dependencies = [
 [tool.setuptools]
 packages = ["OpenMSUtils"]
 
-[tool.setuptools_scm]
-write_to = "OpenMSUtils/_version.py"
-write_to_template = "version = __version__ = {version!r}\nversion_tuple = __version_tuple__ = {version_tuple!r}\nrevision = __revision__ = {scm_version.node!r}\n"
-
 [tool.black]
 line-length = 120
 
