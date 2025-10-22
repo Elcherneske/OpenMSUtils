@@ -25,16 +25,23 @@ class FDRUtils():
         target_count = 0
         decoy_count = 0
 
+        # for i in range(len(sorted_scores)):
+        #     if sorted_labels[i] == 1:
+        #         target_count += 1
+        #     else:
+        #         decoy_count += 1
+
+        #     if target_count == 0:
+        #         fdr_list.append(0)
+        #     else:
+        #         fdr_list.append(float(decoy_count) / target_count)
         for i in range(len(sorted_scores)):
             if sorted_labels[i] == 1:
                 target_count += 1
             else:
                 decoy_count += 1
 
-            if target_count == 0:
-                fdr_list.append(0)
-            else:
-                fdr_list.append(float(decoy_count) / target_count)
+            fdr_list.append(float(decoy_count) / (target_count + decoy_count))
 
         # Calculate q-values using monotonic FDR
         min_fdr = fdr_list[-1]
