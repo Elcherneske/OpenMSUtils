@@ -5,6 +5,14 @@ from .MSFileConverter import MSFileConverter
 from .MGFConverter import MGFConverter
 from .MZMLConverter import MZMLConverter
 
+def mzml_chunk_to_spectra_objects(chunk):
+    return [MZMLConverter.to_spectra_object(spectrum) for spectrum in chunk]
+
+def mgf_chunk_to_spectra_objects(chunk):
+    return [MGFConverter.to_spectra_object(spectrum) for spectrum in chunk]
+
+def msfile_chunk_to_spectra_objects(chunk):
+    return [MSFileConverter.to_spectra_object(spectrum) for spectrum in chunk]
 
 class MSReader(object):
     def __init__(self, thread_num=None):
@@ -74,7 +82,7 @@ class MSReader(object):
             ms_objects = []
 
             with multiprocessing.Pool(processes=self.thread_num) as pool:
-                results = list(tqdm(pool.imap(lambda chunk: [MZMLConverter.to_spectra_object(spectrum) for spectrum in chunk], spectrum_chunks), total=len(spectrum_chunks), desc="Converting to MSObjects"))
+                results = list(tqdm(pool.imap(mzml_chunk_to_spectra_objects, spectrum_chunks), total=len(spectrum_chunks), desc="Converting to MSObjects"))
                 for ms_list in results:
                     ms_objects.extend(ms_list)
         else:
@@ -113,7 +121,7 @@ class MSReader(object):
             spectras_chunks = [spectras[i*chunk_size:(i+1)*chunk_size] for i in range(self.thread_num)]
 
             with multiprocessing.Pool(processes=self.thread_num) as pool:
-                results = list(tqdm(pool.imap(lambda chunk: [MGFConverter.to_spectra_object(spectrum) for spectrum in chunk], spectras_chunks), total=len(spectras_chunks), desc="Converting lines to MSObject"))
+                results = list(tqdm(pool.imap(mgf_chunk_to_spectra_objects, spectras_chunks), total=len(spectras_chunks), desc="Converting lines to MSObject"))
                 for ms_list in results:
                     ms_objects.extend(ms_list)
         else:
@@ -152,7 +160,7 @@ class MSReader(object):
             spectras_chunks = [spectras[i*chunk_size:(i+1)*chunk_size] for i in range(self.thread_num)]
 
             with multiprocessing.Pool(processes=self.thread_num) as pool:
-                results = list(tqdm(pool.imap(lambda chunk: [MSFileConverter.to_spectra_object(spectrum) for spectrum in chunk], spectras_chunks), total=len(spectras_chunks), desc="Converting lines to MSObject"))
+                results = list(tqdm(pool.imap(msfile_chunk_to_spectra_objects, spectras_chunks), total=len(spectras_chunks), desc="Converting lines to MSObject"))
                 for ms_list in results:
                     ms_objects.extend(ms_list)
         else:

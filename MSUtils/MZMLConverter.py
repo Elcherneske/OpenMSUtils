@@ -148,17 +148,6 @@ class MZMLConverter:
         
         mz_array = mz_array_element.findall('.//ns:binary', namespaces=ns)[0].text
 
-        mz_array = base64.b64decode(mz_array)
-        if mz_compression:
-            mz_array = zlib.decompress(mz_array)
-        
-        if mz_precision == 32:
-            fmt = 'f' * (len(mz_array) // 4)
-            mz_array = struct.unpack(fmt, mz_array)
-        else:  # 64-bit
-            fmt = 'd' * (len(mz_array) // 8)
-            mz_array = struct.unpack(fmt, mz_array)
-
         intensity_precision = 64
         intensity_compression = False
         for cv_param in intensity_array_element.findall('.//ns:cvParam', namespaces=ns):
@@ -170,6 +159,22 @@ class MZMLConverter:
                 intensity_compression = True
         
         intensity_array = intensity_array_element.findall('.//ns:binary', namespaces=ns)[0].text
+
+        if mz_array is None or intensity_array is None:
+            spectra_object.clear_peaks()
+            return spectra_object
+
+        mz_array = base64.b64decode(mz_array)
+        if mz_compression:
+            mz_array = zlib.decompress(mz_array)
+        
+        if mz_precision == 32:
+            fmt = 'f' * (len(mz_array) // 4)
+            mz_array = struct.unpack(fmt, mz_array)
+        else:  # 64-bit
+            fmt = 'd' * (len(mz_array) // 8)
+            mz_array = struct.unpack(fmt, mz_array)
+
         intensity_array = base64.b64decode(intensity_array)
         if intensity_compression:
             intensity_array = zlib.decompress(intensity_array)
