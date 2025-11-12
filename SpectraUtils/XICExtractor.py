@@ -7,7 +7,7 @@ import pandas as pd
 import multiprocessing
 from multiprocessing import shared_memory
 import numpy as np
-from MSUtils import SpectraObject, MSReader
+from .MSUtils import SpectraObject, MSReader
 
 # 配置日志
 import logging
@@ -102,7 +102,7 @@ class XICExtractor:
             shared_peaks_buf_name = shared_peaks_buf.name
             shared_peaks_offsets = offsets
 
-            rt_indices = [(-1, -1)] * int(spectra_objects[-1].retention_time / rt_bin_size)
+            rt_indices = [(-1, -1)] * (int(spectra_objects[-1].retention_time / rt_bin_size) + 1)
             ms_clusters = []
 
             current_cluster = None
@@ -118,7 +118,7 @@ class XICExtractor:
                         rt_indices[rt_index] = (rt_indices[rt_index][0], len(ms_clusters) - 1)
                         current_cluster = {'rt': spectra_obj.retention_time, 'ms1': index, 'ms2': []}
                 else:
-                    current_cluster['ms2'].append({'mz_min': spectra_obj.precursor_window[0], 'mz_max': spectra_obj.precursor_window[1], 'index': index})
+                    current_cluster['ms2'].append({'mz_min': spectra_obj.precursor_window[0], 'mz_max': spectra_obj.precursor_window[1], 'index': index, 'rt':spectra_obj.retention_time})
             
             if current_cluster:
                 ms_clusters.append(current_cluster)
@@ -228,6 +228,20 @@ class XICExtractor:
             )
             xics = preprocessor.preprocess()
         
+        global shared_peaks_buf_name, shared_peaks_offsets
+        # 释放两个shared memory
+        if shared_peaks_buf_name is not None:
+            try:
+                from multiprocessing import shared_memory
+                shm = shared_memory.SharedMemory(name=shared_peaks_buf_name)
+                shm.close()
+                shm.unlink()
+                shared_peaks_buf_name = None
+            except Exception as e:
+                logging.warning(f"Error releasing shared_peaks_buf_name '{shared_peaks_buf_name}': {e}")
+        if shared_peaks_offsets is not None:
+            shared_peaks_offsets = None
+
         return xics
 
 class RangePreprocessor:
@@ -380,25 +394,43 @@ class RangePreprocessor:
         if low_index == -1 or high_index == -1:
             clusters = self.ms_clusters
         else:
+            if low_index > 0:
+                low_index -= 1 # 有可能 low_index-1 的 ms1 rt不在范围，但是 ms2 rt在范围
             clusters = self.ms_clusters[low_index:high_index + 1]
         
         # filter clusters by rt range
-        clusters = [cluster for cluster in clusters if cluster['rt'] >= rt_low and cluster['rt'] <= rt_high]
+        # clusters = [cluster for cluster in clusters if cluster['rt'] >= rt_low and cluster['rt'] <= rt_high]
         greedy_index = 0
         results = []
         for cluster in clusters:
-            result = {'rt': cluster['rt'], 'ms1': cluster['ms1'], 'ms2': None}
-            filtered_ms2 = None
-            if 0 <= greedy_index < len(cluster['ms2']) and cluster['ms2'][greedy_index]['mz_min'] <= precursor_mz <= cluster['ms2'][greedy_index]['mz_max']:
-                filtered_ms2 = cluster['ms2'][greedy_index]['index']
+            result = {'ms1': None, 'ms2': None}
+
+            # select ms1
+            selected_ms1 = None
+            if rt_low <= cluster['rt'] <= rt_high:
+                selected_ms1 = {'index': cluster['ms1'], 'rt': cluster['rt']}
+            result['ms1'] = selected_ms1
+
+            # select ms2
+            selected_ms2 = None
+            if (0 <= greedy_index < len(cluster['ms2']) 
+                and cluster['ms2'][greedy_index]['mz_min'] <= precursor_mz <= cluster['ms2'][greedy_index]['mz_max']
+                and rt_low <= cluster['ms2'][greedy_index]['rt'] <= rt_high
+            ):
+                selected_ms2 = {'index': cluster['ms2'][greedy_index]['index'], 'rt': cluster['ms2'][greedy_index]['rt']}
             else:
                 for index, ms2 in enumerate(cluster['ms2']):
-                    if ms2['mz_min'] <= precursor_mz <= ms2['mz_max']:
-                        filtered_ms2 = ms2['index']
+                    if (ms2['mz_min'] <= precursor_mz <= ms2['mz_max']
+                        and rt_low <= ms2['rt'] <= rt_high
+                    ):
+                        selected_ms2 = {'index': ms2['index'], 'rt': ms2['rt']}
                         greedy_index = index
                         break
-            result['ms2'] = filtered_ms2
-            results.append(result)
+            result['ms2'] = selected_ms2
+            if selected_ms1 is not None or selected_ms2 is not None:
+                results.append(result)
+            else:
+                continue
         return results
     
 class ExtractPreprocessor:
@@ -472,26 +504,29 @@ class ExtractPreprocessor:
             precursor_mzs = xic_entry["precursor_mzs"]
             fragment_mzs = xic_entry["fragment_mzs"]
             ms_cluster = xic_entry["ms_cluster"]
-            rt_list = [cluster['rt'] for cluster in ms_cluster]
 
             #precursor_mz的XIC
             precursor_xics = []
-            ms1_specs_offsets = [shared_peaks_offsets[cluster['ms1']] for cluster in ms_cluster]
+            selected_clusters = [cluster for cluster in ms_cluster if cluster['ms1'] is not None]
+            ms1_rt_list = [cluster['ms1']['rt'] for cluster in selected_clusters]
+            ms1_specs_offsets = [shared_peaks_offsets[cluster['ms1']['index']] for cluster in selected_clusters]
             ms1_specs = [np.ndarray(shape=((offset[1] - offset[0])//8, 2), buffer=peaks_buf.buf[offset[0]:offset[1]], dtype=np.float32) for offset in ms1_specs_offsets]
             for precursor_mz in precursor_mzs:
                 precursor_intensity_list, precursor_ppm_list = extract_xic_from_peaks(ms1_specs, precursor_mz, self.ppm_tolerance)
-                precursor_xics.append(XICResult(rt_list, precursor_intensity_list, precursor_mz, precursor_ppm_list))
+                precursor_xics.append(XICResult(ms1_rt_list, precursor_intensity_list, precursor_mz, precursor_ppm_list))
             
             #fragment_mz的XIC
             fragment_xics = []
-            ms2_specs_offsets = [shared_peaks_offsets[cluster['ms2']] for cluster in ms_cluster]
+            selected_clusters = [cluster for cluster in ms_cluster if cluster['ms2'] is not None]
+            ms2_rt_list = [cluster['ms2']['rt'] for cluster in selected_clusters]
+            ms2_specs_offsets = [shared_peaks_offsets[cluster['ms2']['index']] for cluster in selected_clusters]
             ms2_specs = [np.ndarray(shape=((offset[1] - offset[0])//8, 2), buffer=peaks_buf.buf[offset[0]:offset[1]], dtype=np.float32) for offset in ms2_specs_offsets]
             for fragment_mz in fragment_mzs:
                 if all(len(ms2_spec) == 0 for ms2_spec in ms2_specs):
-                    fragment_xics.append(XICResult(rt_list, [0] * len(rt_list), fragment_mz, [self.ppm_tolerance] * len(rt_list)))
+                    fragment_xics.append(XICResult(ms2_rt_list, [0] * len(ms2_rt_list), fragment_mz, [self.ppm_tolerance] * len(ms2_rt_list)))
                 else:
                     fragment_intensity_list, fragment_ppm_list = extract_xic_from_peaks(ms2_specs, fragment_mz, self.ppm_tolerance)
-                    fragment_xics.append(XICResult(rt_list, fragment_intensity_list, fragment_mz, fragment_ppm_list))
+                    fragment_xics.append(XICResult(ms2_rt_list, fragment_intensity_list, fragment_mz, fragment_ppm_list))
 
             if self.adjust_xic:
                 precursor_xics, fragment_xics = self._adjust_xic(precursor_xics, fragment_xics)
