@@ -1,10 +1,8 @@
-# OpenMSUtils
+This open-source repository is used for easily reading and processing MS files, proteins and nucleic acids.
 
-This open source project is used for easily reading and processing MS files and Fasta files.
+# Installation
 
-## Usage
-
-first, install the package, you can use pip to install the package
+use pip to install the package
 
 ```bash
 pip install git+https://github.com/Elcherneske/OpenMSUtils.git
@@ -18,150 +16,124 @@ cd OpenMSUtils
 pip install .
 ```
 
-### Read MS file
-This package provides various classes for reading MS files, including MZML, MGF, MS1, and MS2.
+# Interfaces
 
-Here is a detailed example of reading an MS file using `MZMLReader` and converting the spectra to `MSObject` using `SpectraConverter`:
+## MSUtils
+This module provides class for reading and writing MS files.
+1. SpectraObject: a class for representing single spectrum data.
 
-```python
-from OpenMSUtils.SpectraUtils import MZMLReader, SpectraConverter
+Main properties of this class:
 
-# Step 1: Initialize the MZMLReader
-reader = MZMLReader()
+- level: (read-only) The MS level of the spectrum (e.g., MS1, MS2).
+- scan: (read-only) A dictionary containing scan information, including scan_number (scan id), rt (retention time), dt (drift time), and scan_window (tuple).
+- precursor: (read-only) A dictionary containing precursor ion information, including mz (mass/charge), charge, ref_scan_number, activation_method, activation_energy, and isolation_window.
+- peaks: (read-only) A numpy array containing the peak list, usually as (mz, intensity).
+- scan_number: (read-only) The scan number, equivalent to scan['scan_number'].
+- retention_time: (read-only) The retention time, equivalent to scan['rt'].
+- drift_time: (read-only) The drift time, equivalent to scan['dt'].
+- precursor_mz: (read-only) The m/z value of the precursor ion.
+- precursor_charge: (read-only) The charge of the precursor ion.
+- precursor_window: (read-only) The isolation window of the precursor ion.
 
-# Step 2: Specify the path to your mzML file
-file_path = "path/to/your/test.mzML"
+2. MSWriter: a class for writing MS files.
 
-# Step 3: Read the mzML file
-# You can choose to parse spectra in parallel for better performance
-mzml_obj = reader.read(file_path, parse_spectra=True, parallel=True)
+init parameters:
+- thread_num: the number of threads to use for writing the file.
 
-# Step 4: Access the spectra from the MZMLObject
-if mzml_obj.run and mzml_obj.run.spectra_list:
-    print(f"成功读取 {len(mzml_obj.run.spectra_list)} 个谱图")
+functions:
+- write_from_spectra_objects(spectra_objects: list[SpectraObject], filename: str): write the spectra objects to a MS file, support mzML, mgf, ms1, ms2 files.
 
-    # Step 5: Iterate through the spectra and convert them to MSObject
-    ms_objects = []
-    for spectrum in mzml_obj.run.spectra_list:
-        ms_obj = SpectraConverter.to_msobject(spectrum)
-        ms_objects.append(ms_obj)
-    print(f"转换成功: {spectrum.attrib.get('id', 'N/A')} -> MSObject")
+3. MSReader: a class for reading MS files.
 
-    # Step 6: Access properties of the MSObject
-    for ms_obj in ms_objects:
-    print(f"MS级别: {ms_obj.level}")
-    print(f"保留时间: {ms_obj.retention_time:.2f}秒")
-    print(f"峰值数量: {len(ms_obj.peaks)}")
-else:
-    print("未读取到谱图数据")
-```
+init parameters:
+- thread_num: the number of threads to use for reading the file.
 
-Here is an example of using MSObject
-```python
-from OpenMSUtils.SpectraUtils import MSObject, SpectraConverter
+functions:
+- read_to_spectra_objects(filename: str): read the file and return a list of SpectraObject, support mzML, mgf, ms1, ms2 files.
 
-ms_object = SpectraConverter.to_msobject(spectrum)
+## SpectraUtils
 
-# get peaks from ms_object
-peaks = ms_object.peaks
+This package provides various classes for processing MS files.
 
-# get precursor from ms_object
-precursor = ms_object.precursor
+1. XICSExtractor: extract XICs
 
-# get scan_info from ms_object
-scan_info = ms_object.scan
+init parameters:
+- ppm_tolerance: (optional) the ppm tolerance for the XIC extraction, default is 25.0.
+- rt_bin_size: (optional) the retention time bin size for the XIC extraction, default is 1.0.
+- num_threads: (optional) the number of threads to use for the XIC extraction, default is 1.
+- min_scans: (optional) the minimum number of scans to be included in the XIC, default is 5.
+- peak_boundary: (optional) the peak boundary for the XIC extraction, default is 0.2.
+- mode: (optional) the mode for the XIC extraction, 'rt_range' or 'scan_window', default is 'rt_range'.
 
-# get ms level from ms_object
-ms_level = ms_object.level
+functions:
+- extract_xics(mzml_file: str, df: pd.DataFrame) -> List[tuple[List[XICResult], List[XICResult]]]: extract the XICs from the SpectraObject list.
 
-# get additional_info from ms_object
-additional_info = ms_object.additional_info
+## AnalysisUtils
 
-# get scan_number from ms_object
-scan_number = ms_object.scan_number
+This package provides various classes for analyzing various data.
 
-# get retention_time from ms_object
-retention_time = ms_object.retention_time
+1. FDRUtils: calculate FDR
 
-```
+functions:
+- calculate_fdr(score, label, target_fdr=0.01, top_n=20) -> int, float: return the number of targets below threshold and the minimum score threshold.
 
-Here is an example of reading MS file from mgf, ms1, ms2:
-```python
-from OpenMSUtils.SpectraUtils import MZMLReader, MGFReader, MS1Reader, MS2Reader
+2. FastaUtils: process Fasta files
 
-reader = MGFReader()
-meta_data, spectrum = reader.read(file_path)
+functions:
+- read(filename: str) -> dict: {header: sequence, ...}
+- write(sequences: dict, filename: str): write the sequences to a Fasta file.
 
-reader = MS1Reader()
-meta_data, spectrum = reader.read(file_path)
+3. DecoyUtils: generate decoy sequences
 
-reader = MS2Reader()
-meta_data, spectrum = reader.read(file_path)
+functions:
+- generate_decoy(sequence: str, modifications: Optional[Dict[int, str]] = None, method: str = "reverse", keep_terminals: bool = True, similarity_threshold: float = 1.0, max_attempts: int = 10) -> Tuple[str, Dict[int, str]]: generate a decoy sequence, return the decoy sequence and the modifications dictionary.
 
-```
+## MolecularUtils
 
-### ion mobility spectrum
-this package provides various classes for reading and processing ion mobility spectrum
+This package provides various classes for simulating molecular data.
 
-Here is an example of reading ion mobility spectrum:
+1. Modification: a class for representing a modification.
 
-```python
-from OpenMSUtils.SpectraUtils import MZMLReader, SpectrumPlotter, IonMobilityUtils
+init parameters:
+- name: (required) the name of the modification.
+- formula: (required) the formula of the modification, the format should be '[M+x]' or '[M-x]', where x is the chemical formula of the modification like 'H2O' or 'NH3'.
 
-reader = MZMLReader()
-meta_data, spectra = reader.read(file_path)
+properties:
+- mass: (read-only) the mass of the modification.
+- charge: (read-only) the charge of the modification.
+- name: (read-only) the name of the modification.
+- formula: (read-only) the formula of the modification.
 
-ion_mobility_utils = IonMobilityUtils()
-ion_mobility_utils.get_ion_mobility(spectra[start_index:end_index])
+2. ModificationUtils: a class for processing modifications.
 
-plotter = SpectrumPlotter()
-plotter.plot_ion_mobility(ion_mobility_utils.ion_mobility_spectrum, time_range=(0, 100), mz_range=(0, 1000), time_bins=200, mz_bins=200)
+functions:
+- parse_modification_file(file_path: str) -> pd.DataFrame: parse the modification file and return a DataFrame. # in development
+- find_modifications_by_mass(modifications: pd.DataFrame, mass: float, tolerance: float = 0.0001) -> List[Modification]: find the modifications by mass. # in development
+- parse_modified_sequence(modified_sequence: str) -> Tuple[str, Dict[int, str]]: parse the modified sequence and return the sequence and the modifications, for example, 'PEPTIDE(UniMod:1)' will be parsed to ('PEPTIDE', {6: 'UniMod:1'}).
+- format_modified_sequence(sequence: str, modifications: Dict[int, str]) -> str: format the modified sequence and return the sequence, for example, ('PEPTIDE', {6: 'UniMod:1'}) will be formatted to 'PEPTIDE(UniMod:1)'.
 
-```
+3. Peptide: a class for representing a peptide.
+
+init parameters:
+- sequence: (required) the sequence of the peptide.
+- modifications: (optional) the modifications of the peptide, default is None.
+- charge: (optional) the charge of the peptide, default is 0.
+- adduct: (optional) the adduct of the peptide, default is '[M+H+]'.
+- fragments_type: (optional) the fragments type of the peptide, default is ['b', 'y'].
+
+properties:
+- mass: (read-only) the mass of the peptide.
+- mz: (read-only) the m/z value of the peptide.
+- fragments: (read-only) the fragments of the peptide.
+
+functions:
+- add_modification(index: int, modification: Modification): add a modification to the peptide.
+- set_charge(charge: int): set the charge of the peptide.
+- set_adduct(adduct: str): set the adduct of the peptide.
+- set_fragments_type(fragments_type: list[str]): set the fragments type of the peptide.
+
+4. NucleicAcidUtils: a class for representing a nucleic acid. # in development
 
 
 
-### Read Fasta file && Write Fasta file
-
-```python
-from OpenMSUtils.FastaUtils import FastaReader, FastaWriter
-
-reader = FastaReader()
-sequences = reader.read(file_path)
-
-#sequences: {head: sequence, ...}
-writer = FastaWriter()
-writer.write(sequences, file_path)
-```
-
-### Nucleic Acid
-This package provides various classes for processing nucleic acid sequences, including oligonucleotide sequences, DNA sequences, and RNA sequences.
-
-Here is an example of processing nucleic acid sequences:
-
-```python
-from OpenMSUtils.MolecularUtils import NucleicAcidUtils
-
-# generate a oligonucleotide sequence
-sequence = NucleicAcidUtils.Oligonucleotide("ATCG")
-
-# add modifications to the sequence
-sequence.add_modification(0, NucleicAcidUtils.Modification("Phosphorylation", "HPO3"))
-
-# add end modifications to the sequence
-sequence.add_end_modifications(("Phosphorylation", "HPO3"), ("Phosphorylation", "HPO3"))
-
-# set charge of the sequence
-sequence.set_charge(1)
-
-# set adduct of the sequence
-sequence.set_adduct("H+")
-
-# generate fragments of oligonucleotide
-fragments = sequence.fragments
-
-# get the mass of the sequence
-mass = sequence.mass
-
-```
 

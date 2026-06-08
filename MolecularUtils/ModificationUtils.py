@@ -6,24 +6,39 @@ import re
 
 class Modification():
     def __init__(self, name: str, formula: str):
-        self.name = name
-        self.formula = formula
-
+        self._name = name
+        self._formula = formula
+        if formula.startswith('[M') and formula.endswith(']'):
+            self._chemical_formula = formula[3:-1]
+            self._formula_type = formula[2] # + or -
+        else:
+            raise ValueError(f"Invalid adduct format: {formula}")
+        
+        self._mass = EnhancedFormula(self._chemical_formula).isotope.mass
+        if self._formula_type == '+':
+            self._mass = self._mass
+        elif self._formula_type == '-':
+            self._mass = -self._mass
+        else:
+            raise ValueError(f"Invalid adduct format: {self._formula}")
+        
+        self._charge = EnhancedFormula(self._chemical_formula).isotope.charge
+    
     @property
     def mass(self):
-        # 处理特殊的加合物表示法，如 [M+H+], [M+NH3] 等
-        adduct_pattern = r'\[M([\+\-].+)\]'
-        match = re.match(adduct_pattern, self.formula)
-        if match:
-            adduct = match.group(1)
-            if adduct.startswith('+'):
-                return EnhancedFormula(adduct[1:]).isotope.mass
-            elif adduct.startswith('-'):
-                return -EnhancedFormula(adduct[1:]).isotope.mass
-            else:
-                raise ValueError(f"Invalid adduct format: {self.formula}")
-        else:
-            raise ValueError(f"Invalid adduct format: {self.formula}")
+        return self._mass
+    
+    @property
+    def charge(self):
+        return self._charge
+
+    @property
+    def name(self):
+        return self._name
+    
+    @property
+    def formula(self):
+        return self._formula
 
 class ModificationUtils():
     @staticmethod
@@ -63,7 +78,11 @@ class ModificationUtils():
     @staticmethod
     def parse_modified_sequence(modified_sequence: str) -> Tuple[str, Dict[int, str]]:
         """
-        解析带修饰标记的序列，例如 "PEP(Phospho)TIDE" 或 "PEP(Phospho (P))TIDE"
+        解析带修饰标记的序列，支持多种修饰格式：
+        - PEP(Phospho)TIDE
+        - PEP(Phospho (P))TIDE
+        - PEP[Phospho (P)]TIDE(Phospho)
+        - PEP[Phospho [P]]TIDE[Phospho (P)]
         
         参数:
             modified_sequence: 带修饰标记的序列
@@ -77,21 +96,25 @@ class ModificationUtils():
         pos = 0
         
         while i < len(modified_sequence):
-            if i < len(modified_sequence) - 1 and modified_sequence[i+1] == '(':
+            if i < len(modified_sequence) - 1 and modified_sequence[i+1] in ['(', '[']:
                 # 找到一个氨基酸后面跟着修饰
                 aa = modified_sequence[i]
                 clean_sequence += aa
                 pos = len(clean_sequence) - 1
                 
+                # 确定修饰的开始和结束符号
+                start_symbol = modified_sequence[i+1]
+                end_symbol = ')' if start_symbol == '(' else ']'
+                
                 # 找到完整的修饰（处理嵌套括号）
-                start = i + 2  # 跳过 '('
+                start = i + 2  # 跳过开始符号
                 paren_count = 1
                 j = start
                 
                 while j < len(modified_sequence) and paren_count > 0:
-                    if modified_sequence[j] == '(':
+                    if modified_sequence[j] in ['(', '[']:
                         paren_count += 1
-                    elif modified_sequence[j] == ')':
+                    elif modified_sequence[j] in [')', ']']:
                         paren_count -= 1
                     j += 1
                 

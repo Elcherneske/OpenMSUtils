@@ -1,4 +1,4 @@
-class FastaReader:
+class FastaUtils:
     def __init__(self):
         pass
 
@@ -7,6 +7,17 @@ class FastaReader:
             lines = file.readlines()
             sequences = self._parse_fasta(lines)
         return sequences
+    
+    def write(self, sequences, filename):
+        """
+        sequences: {header: sequence, ...}
+        """
+        with open(filename, 'w') as output_file:
+            for header, sequence in sequences.items():
+                output_file.write(f'>{header}\n')
+                # 将序列分为多行，每行不超过 80 个字符
+                for i in range(0, len(sequence), 80):
+                    output_file.write(f'{sequence[i:i + 80]}\n')
 
     def _parse_fasta(self, lines):
         """

@@ -1,4 +1,4 @@
-from .FastaUtils import *
+from .MSUtils import *
 from .SpectraUtils import *
-from .MolecularUtils import *
 from .AnalysisUtils import *
+from .MoleculeUtils import *
